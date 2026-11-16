@@ -29,7 +29,7 @@ Players feel it only as one line in the first-launch privacy prompt and one togg
 
 Three promises the rules must keep:
 
-- **Asked, not assumed.** Nothing is recorded, queued or sent before the player says yes (R2).
+- **Asked, not assumed.** Nothing is written to disk or sent, and no install ID exists, before the player says yes. What the first session produced while the question was pending is held in memory only, sent if the player says yes and discarded if they say no (R2, user decision D8 2026-11-16).
 - **Anonymous by construction.** No name, account, guild name, member name, free text, contact detail or advertising ID is ever in a record (R3, R4). Localization R1 already keeps text out of events; this system keeps identity out too.
 - **Invisible in play.** No spinner, no frame hitch, no battery drain worth noticing; analytics failing or offline is never visible (R9, F5).
 
@@ -45,15 +45,18 @@ Three promises the rules must keep:
 ### Core Rules
 
 **R1 — Outside the simulation, one passive tap.** Analytics registers no tick phase, owns no Event-bus type block, and emits no events. Its only simulation contact is `subscribe("analytics", order = 3700, allowlisted_type_ids, tap)` at boot (Event bus R4). The tap, for each record in its batch, looks up the type's collection mode (R5) and either appends the record to the host-side **pending buffer** or adds to a session counter. It returns. It never calls `ctx.emit`, `ctx.submit` or `ctx.fail`, never queries history, and never reads another system's state. Its pending buffer and counters are host memory, are not part of any simulation snapshot or save, and are never read by a handler. Removing the subscription changes no simulation output, hash or save byte (AC-1).
-- The tap is registered **only** by the interactive game host. The balance simulator, leaderboard verifier, parity harness and any headless run never register it, so it takes no subscriber slot there.
-- If consent is not `granted` (R2) at boot, the tap is not registered at all.
+- The tap is registered **only** by the interactive game host, and the interactive host **always** registers it at boot, whatever the consent state (the bus table is frozen at `seal()`, so it cannot be added later). The balance simulator, leaderboard verifier, parity harness and any headless run never register it, so it takes no subscriber slot there.
+- The tap has a host-side mode set from consent (R2): `buffering` (`unasked`: records go to the memory-only pending buffer and counters), `collecting` (`granted`: as `buffering`, plus the R7 disk queue and R8 upload) or `inactive` (`declined`: every record is dropped on arrival, nothing is kept). A mode change takes effect at the **next tap call** after the change, which is always between ticks, so no batch is split across modes.
 - *Subscriber order 3700 follows the "block = system number × 100" convention. It is not the highest order in use (Member state machine 4100 and Onboarding 4400 subscribe later); that is harmless, because the tap reads only the delivered batch, which no subscriber can change (consistency-check 2026-11-16: corrected "highest order in use").*
 
-**R2 — Consent gate.** Analytics has three consent states: `unasked`, `granted`, `declined` (States below). Analytics owns this value; it is independent of ad consent, which the UMP SDK holds for Ads (33 R4). It is stored as one key, `analytics_consent`, in the Settings (45) preferences store (PROVISIONAL, OQ-1). Ads R3's privacy notice is informational, not consent, so it does not grant analytics consent; this answers Ads OQ-4. The opt-in choice (UI Requirements) is shown immediately after the R3 notice, before any analytics call.
-- Only `granted` collects. In `unasked` and `declined` nothing is recorded, nothing is queued, the install ID is not created, and no network call is made.
-- The default is `unasked`, and `unasked` behaves exactly like `declined`. There is no implied consent, no region-based default and no "legitimate interest" path in Alpha.
-- Changing to `declined` at any time (Settings toggle) immediately unsubscribes nothing mid-run (bus tables are frozen) but sets the tap's `active` flag false so it drops every record, deletes the on-disk queue, clears counters and deletes the install ID (R3). The next boot does not register the tap.
-- Changing to `granted` takes effect at the next session start (R6); the tap is registered at the next boot. Until then host signals are collected but sim events are not.
+**R2 — Consent gate.** Analytics has three consent states: `unasked`, `granted`, `declined` (States below). Analytics owns this value; it is independent of ad consent, which the UMP SDK holds for Ads (33 R4). It is stored as one key, `analytics_consent`, in the Settings (45) preferences store (key requested from Settings in the 2026-11-16 revision, OQ-1). Ads R3's privacy notice is informational, not consent, so it does not grant analytics consent; this answers Ads OQ-4. The opt-in choice (UI Requirements) is shown immediately after the R3 notice, before any analytics call.
+- **`unasked` buffers in memory only** (user decision D8). Sim events and host signals are kept in the pending buffer and session counters, under the normal R5 modes and the `raw_per_session_max` cap. Nothing is written to disk, the install ID is not created, and no network call is made. Records carry no `aid`/`sid` yet. The buffer lives only in this process: if the app quits while still `unasked`, the buffer is lost, and the opt-in is shown again at the next launch.
+- **`unasked → granted` sends the buffer.** At that moment the install ID is created (R3), the open session becomes `sid = 1` (or the next ordinal), the buffered records are stamped with `aid`/`sid`/`seq` in arrival order and moved to the R7 queue, and collection continues without a break. So a first session's `boss_won`, `recruit_hire` and onboarding steps (R10 first-hour funnel) are collected.
+- **`unasked → declined` discards the buffer.** The buffer and counters are cleared at once and the tap goes `inactive`. Nothing was ever written or sent.
+- The default is `unasked`. There is no implied consent, no region-based default and no "legitimate interest" path in Alpha.
+- Changing `granted → declined` at any time (Settings toggle) sets the tap `inactive`, so it drops every later record, deletes the on-disk queue, clears counters and deletes the install ID (R3). At later boots the tap is still registered but starts `inactive`.
+- Changing `declined → granted` (Settings toggle) sets the tap `collecting` at once, creates a new ID and starts a new session at `sid = 1`. Play before the toggle is not back-filled (nothing was kept while `declined`).
+- **One activation moment.** Every consent change is applied by the host between ticks, and the tap's mode changes at its next call (R1). The States table below is the single statement of what each state collects.
 
 **R3 — Pseudonymous install ID.** On the first `granted` session the host creates `analytics_id`: a random 128-bit value (engine randomness is allowed here, R1) stored in a small analytics file beside, not inside, the save. It is never derived from, joined to or sent with `account_id`, device IDs, the advertising ID or `guild_uid`. It is regenerated after any `declined`, after *Reset analytics ID* in Settings, and after uninstall. Different devices of one player are different analytics users; this is accepted.
 
@@ -62,14 +65,14 @@ Three promises the rules must keep:
 | Field | Type | Notes |
 |---|---|---|
 | `aid` | string (32 hex) | `analytics_id` (R3) |
-| `sid` | int | Session ordinal on this install, starting at 1 |
+| `sid` | int | Session ordinal on this install, starting at 1 (assigned when the session's records are first stamped, R2) |
 | `seq` | int | Record ordinal within the session, for de-duplication (R8) |
 | `ev` | string `[a-z0-9_]`, ≤ 32 | Analytics event key (R5); never free text |
 | `t_ms` | int | Milliseconds since session start (engine monotonic time) |
 | `p` | up to 4 ints | Payload: the bus record's `a–d`, or the signal's fields, unchanged |
 | `cu` | 0/1 | 1 if the source tick ran while `catching_up` (Sim core R15) |
 
-Each batch carries one header, not repeated per record: `app_version`, `sim_version`, `content_wave`, `platform` (`android`/`ios`/`steam`/`web`), `locale` (Localization 4: the code only), `tier` (`free`/`premium`, from Entitlement 32's `premium` entitlement at session start), `utc_day` of the batch (the calendar date, no time). Wall-clock timestamps are not sent per record; the backend stamps receipt time.
+Each batch carries one header, not repeated per record: `app_version`, `sim_version`, `content_wave`, `platform` (`android`/`ios`/`steam`/`web`), `locale` (Localization 4: the code only), `tier` (`free`/`premium`, from Entitlement 32's `premium` entitlement at session start). The batch header carries no day: **each session's own UTC day** travels in its `session_start` record (`p[1]`, R6), and every KPI that needs a day (F6) uses it. Wall-clock timestamps are not sent per record; the backend stamps receipt time.
 - **Forbidden in any field:** display strings, player or guild names, member names, account or store IDs, email, IP-derived location beyond the backend's country lookup (OQ-4), advertising ID, purchase receipts or order IDs, prices in local currency. Product IDs and the Entitlement tier are allowed.
 - Payload ints are copied, not interpreted. Their meaning is the emitter GDD's, keyed by `sim_version`.
 
@@ -102,24 +105,27 @@ The allowlist maps a source (bus `type_id`, or host signal name) to `{ev, mode, 
 | Host: Ads R12 `banner_state_changed(state)` / `rewarded_state_changed(state)` / `ad_watch_credited(quest_id, watch_id)` (33) | `ad_banner` / `ad_rewarded_state` / `ad_watch` | count / count / raw (`quest_id` only) | Opt-in rate (§11.4) |
 | Host: Ads R12 `consent_state_changed(state, personalised)` (33) | `ad_consent` | raw | Ad-consent mix (ints only) |
 | 3201 / 3202 / 3203 [`entitlement_changed`/`trial_started`/`trial_ended`] (Entitlement 32) | `entitlement` / `trial_start` / `trial_end` | raw / raw / count | Premium conversion and trial value (§11.5 "dùng thử có giới hạn") |
-| Host: onboarding step completed (Onboarding 44, PROVISIONAL) | `onb_step` | raw | Tutorial funnel |
+| 4401 [`onboarding_step_completed`] (Onboarding 44 R3; `a` = stable `row_id` 1–63) | `onb_step` | raw | Tutorial funnel (R10); Onboarding's 15–25 min chain target |
+| 4402 [`onboarding_ended`] (Onboarding 44 R4; `a` = 1 finished / 2 skipped, `b` = step current at skip) | `onb_end` | raw | Finish vs skip rate |
+| This system's own counters: `queue_dropped` (R7), `upload_rejected` (Edge Cases, 4xx), `raw_overflow` (Edge Cases, raw cap) | same | count | Pipeline health (R10 Reliability) |
 
 - Adding, removing or changing a row is a data change, not a code change, and does not change `sim_version` (the bus does not hash subscribers). Where the allowlist is stored is open (OQ-2).
+- **The published key list** that the server validates `ev` against (R8) is every `ev` in this table, including the three own-counter keys and `session_start` / `session_end`. A client build may only emit keys in the list published for its `app_version`, so a summary record can never cause its own rejection.
 - A bus type that is not registered at `seal()` cannot be subscribed (Event bus R4 boot error). The analytics host therefore **filters its subscription list to types registered in this build** before calling `subscribe`, and logs (not fails) any allowlist row it dropped, so Wave-gated or not-yet-built emitters never break boot.
 - Per-member detail is not collected: payload slots holding a member ID are copied as-is (member IDs are per-save integers with no meaning outside the save), but no per-member profile is built.
 
-**R6 — Sessions.** A session starts when the app reaches the foreground with consent `granted` and ends when it goes to the background for longer than `session_gap_s` or quits. A return within `session_gap_s` continues the same session.
-- `session_start` (raw) carries `p = [offline_s_bucket, 0, 0, 0]` where the bucket is F1 of the real time since the last session end.
+**R6 — Sessions.** A session starts when the app reaches the foreground with consent `unasked` or `granted` (tap `buffering` or `collecting`) and ends when it goes to the background for longer than `session_gap_s` or quits. A return within `session_gap_s` continues the same session.
+- `session_start` (raw) carries `p = [offline_s_bucket, session_utc_day, 0, 0]`. The bucket is F1 of the real time since the last session end. `session_utc_day = floor(unix_s / 86,400)` at the session's start (days since 1970-01-01 UTC; 20,773 on 2026-11-16), taken from the device wall clock when the session starts, not when the batch is sent. A session that crosses midnight keeps its start day.
 - `session_end` (raw) carries `p = [duration_s, ticks_run, catchup_ticks, 0]`, followed by the session **summary**: one record per non-zero `count`/`sum` counter, `ev = <key>`, `p = [count, sum_low, sum_high, 0]` (sum split into two 31-bit halves, F2).
 - If the app is killed without a background callback, the summary is written at the next launch from the persisted counters (counters are flushed to the analytics file at each background, R7).
 
-**R7 — Local queue.** Records go to an in-memory pending buffer, then to an append-only on-disk queue at each upload attempt and at each background. The queue holds at most `queue_cap_records`; on overflow the **oldest raw records are dropped first**, session summaries last, and a `queue_dropped` counter records how many (uploaded with the next summary). The queue file is separate from the save, never synced by cloud save, and deleted on `declined` (R2).
+**R7 — Local queue.** Records go to an in-memory pending buffer, then to an append-only on-disk queue at each upload attempt and at each background. The queue holds at most `queue_cap_records`; on overflow the **oldest raw records are dropped first**, session summaries last, and a `queue_dropped` counter records how many (uploaded with the next summary). A session whose `session_utc_day` is more than `queue_max_age_days` before today is dropped whole from the queue at the next flush and counted in `queue_dropped`; this is the same bound the server applies (R8), so no queued record is ever stale on arrival. The queue file is separate from the save, never synced by cloud save, and deleted on `declined` (R2). Records only reach the queue in `collecting` mode (R1).
 
 **R8 — Upload.** The host uploads the queue to the `analytics_ingest` Supabase Edge Function (§8.1) as one compressed batch of at most `batch_max_records`, when F3 says flush. It is never called inside a tick and never blocks a frame.
 - A `2xx` response deletes the sent records. Any other response or a timeout keeps them and retries per F4.
 - The backend de-duplicates on `(aid, sid, seq)`, so a resend after a lost response is harmless.
 - No upload on a metered connection when the OS reports data saver (Android `isActiveNetworkMetered` + Data Saver), except session summaries (small).
-- The ingest endpoint takes an anonymous project key only; it is rate-limited per `aid` server-side (ADR). Records are untrusted input: the server validates schema, `ev` against the published allowlist, and field ranges, and drops the batch on failure.
+- The ingest endpoint takes an anonymous project key only; it is rate-limited per `aid` server-side (ADR). Records are untrusted input: the server validates schema, `ev` against the published key list (R5), and field ranges, and drops the batch on failure. A session is accepted when its `session_utc_day` lies in `[receipt_day − queue_max_age_days, receipt_day + 1]`; records of a session outside that range are dropped individually, not the whole batch.
 
 **R9 — Failure is silent.** No analytics error is ever shown to the player, logged as a game error, or allowed to affect play. A full queue, a dead network, a server error or a malformed allowlist row only reduces what is collected. The one exception is development builds, where the host prints analytics warnings to the debug console.
 
@@ -127,26 +133,28 @@ The allowlist maps a source (bus `type_id`, or host signal name) to `{ev, mode, 
 - **Retention** D1 / D7 / D30: share of `aid`s whose first `session_start` is on day 0 and who have a `session_start` on day N (F6).
 - **Session length** median and p90 of `session_end.p[0]`.
 - **First-hour funnel**: time from first `session_start` to first `boss_won`, first `recruit_hire`, and each `onb_step`.
-- **Economy health**: per `aid`-day, `gold_spent / (gold_tax_in + gold_shop_in)` against the §19.5 target of 60–90% (F7).
+- **Guild fund flow**: per `aid`-day, `fund_out_in_ratio` (F7): fund spending and upkeep against fund income. It is a fund-only indicator, **not** the §19.5 whole-economy out/in ratio, and is never compared to the §19.5 60–90% target (OQ-3 tracks the whole-economy measure).
 - **Pacing**: distribution of days to first `rebirth` against §4.3.
 - **Monetization**: share of `aid`s with `tier = premium`; `ad_rewarded` per Free DAU; IAP funnel by `iap_state`.
-- **Reliability**: `cloud_conflict` per 1,000 sessions; `queue_dropped` totals.
+- **Reliability**: `cloud_conflict` per 1,000 sessions; `queue_dropped`, `upload_rejected` and `raw_overflow` totals.
 KPI dashboards, retention windows and alert thresholds are tooling, not game rules, and live outside this GDD (ADR).
 
 ### States and Transitions
 
 Consent state (per install):
 
-| State | Collects? | Install ID | Tap registered at boot? |
-|---|---|---|---|
-| `unasked` | No | None | No |
-| `granted` | Yes | Exists | Yes |
-| `declined` | No | Deleted | No |
+| State | Tap mode (R1) | Collects? | Disk queue / upload | Install ID |
+|---|---|---|---|---|
+| `unasked` | `buffering` | Into memory only | No / No | None |
+| `granted` | `collecting` | Yes | Yes / Yes | Exists |
+| `declined` | `inactive` | No (dropped on arrival) | No (deleted) / No | Deleted |
+
+The interactive host registers the tap at every boot in every state (R1).
 
 | From | To | Trigger | Effect |
 |---|---|---|---|
-| `unasked` | `granted` | Player taps *Allow* on the analytics opt-in screen (after Ads R3 notice) | ID created; host signals collected now; sim events from next boot |
-| `unasked` | `declined` | *No thanks* | Nothing stored |
+| `unasked` | `granted` | Player taps *Allow* on the analytics opt-in screen (after Ads R3 notice) | ID created; memory buffer stamped and moved to the queue; collection continues at the next tap call |
+| `unasked` | `declined` | *No thanks* | Memory buffer and counters discarded; nothing was stored |
 | `granted` | `declined` | Settings toggle off | Tap goes inactive at once; queue, counters, ID deleted |
 | `declined` | `granted` | Settings toggle on | New ID; as `unasked → granted` |
 | `granted` | `granted` | *Reset analytics ID* | Queue and counters deleted, new ID, new session ordinal 1 |
@@ -160,11 +168,11 @@ Upload state (host, per attempt): `Idle → Sending → Idle` (2xx) or `Sending 
 | Event bus and history log (42) | bus → this | Per-tick batches of allowlisted types via `subscribe("analytics", 3700, …)` | Nothing | Bus owns delivery; this system owns the tap |
 | Sim core (1) | core → this | `catching_up`, ticks run (R15 facade, read between ticks) | Nothing | Sim core |
 | Ads (33) | 33 → this | R3 notice shown (gate for the opt-in screen); R12 host signals | Nothing | Ads |
-| Settings (45) | 45 → this | Preferences-store key `analytics_consent`; toggle and *Reset ID* rows | Nothing | Settings owns the store and screen; this system owns the key's meaning (PROVISIONAL) |
+| Settings (45) | 45 → this | Preferences-store key `analytics_consent`; toggle and *Reset ID* rows | Nothing | Settings owns the store and screen; this system owns the key's meaning (key requested from Settings, OQ-1) |
 | Entitlement (32) | 32 → this | `premium` at session start; events 3201–3203 via the bus | Nothing | Entitlement |
 | In-app purchases (34) | 34 → this | R13 host signals | Nothing | IAP |
 | Account and cloud save (7) | 7 → this | `sync_state_changed`, `conflict_detected` host signals (never `account_id`) | Nothing | Account |
-| Onboarding (44) | 44 → this | Step-completed signal (PROVISIONAL) | Nothing | Onboarding |
+| Onboarding (44) | via bus | Events 4401 `onboarding_step_completed`, 4402 `onboarding_ended` | Nothing | Onboarding |
 | Localization (4) | 4 → this | Active locale code | Nothing | Localization |
 | Data layer (3) | 3 → this | Allowlist and knobs (OQ-2) | Nothing | Data layer |
 | Emitter GDDs (11, 14, 15, 16, 21, 23, 24, 26, 27, 28, 31) | via bus | Event payload meanings | Nothing | Each emitter |
@@ -182,9 +190,9 @@ The offline_s_bucket formula is defined as:
 | Variable | Type | Range | Source | Description |
 |----------|------|-------|--------|-------------|
 | gap_s | int | 0 – 2³¹ | calculated | Real seconds since the previous `session_end` on this install (engine wall clock; 0 for the first session) |
-| bucket_max | int | 16 | constant | Top bucket (≈ 45 days and beyond) |
+| bucket_max | int | 16 | constant | Top bucket (gap ≥ 2¹⁵ min ≈ 22.8 days) |
 
-**Output Range:** 0 – 16. Bucket 1 = 1–2 min, 5 = 16–32 min, 9 ≈ 4.3–8.5 h, 10 ≈ 8.5–17 h, 11 ≈ 17–34 h. Coarse buckets are deliberate: they answer "how long were they away" (offline cap 8 h Free / 24 h Premium, §21 P4) without sending a timestamp. A negative gap (clock moved back) is treated as 0.
+**Output Range:** 0 – 16. Bucket 1 = 1–2 min, 5 = 16–32 min, 9 ≈ 4.3–8.5 h, 10 ≈ 8.5–17 h, 11 ≈ 17–34 h. Coarse buckets are deliberate: they answer "how long were they away" (offline cap 12 h for every player, Offline R4) without sending a timestamp. A negative gap (clock moved back) is treated as 0.
 **Example:** away 9 h = 32,400 s → 32,400 / 60 = 540 → log2 540 ≈ 9.08 → bucket 10.
 
 ### F2 — Sum split
@@ -267,15 +275,15 @@ The volume formulas are defined as:
 | Variable | Type | Range | Source | Description |
 |----------|------|-------|--------|-------------|
 | N | int | 1, 7, 30 | constant | Retention day |
-| first_day(aid) | date | — | calculated | `utc_day` of the `aid`'s first `session_start` |
-| has_session | bool | — | calculated | Any `session_start` from that `aid` on that `utc_day` |
+| first_day(aid) | int (UTC day number) | — | calculated | `session_utc_day` (`p[1]`, R6) of the `aid`'s first `session_start` |
+| has_session | bool | — | calculated | Any `session_start` from that `aid` whose `session_utc_day` equals that day, whenever it was uploaded |
 
 **Output Range:** 0 – 1. Because `aid` resets on decline/reset/reinstall (R3), a returning player can count as a new one; retention is a **lower bound** and cohorts with high reset rates are flagged by `session_start` with `sid = 1` and a non-zero bucket (impossible for a true first session).
-**Example:** 1,000 installs on day 0, 380 seen on day 1 → D1 = 0.38.
+**Example:** 1,000 installs on day 0, 380 seen on day 1 → D1 = 0.38. A day-1 session uploaded on day 4 (offline queue) still counts for day 1, because the day comes from `session_start.p[1]`, not the receipt.
 
-### F7 — `gold_out_in_ratio` (backend)
+### F7 — `fund_out_in_ratio` (backend)
 
-`gold_out_in_ratio = Σ gold_spent.sum / (Σ gold_tax_in.sum + Σ gold_shop_in.sum)` over one `aid`-day; undefined (excluded) when the denominator is 0
+`fund_out_in_ratio = (Σ gold_spent.sum + Σ gold_upkeep.sum) / (Σ gold_tax_in.sum + Σ gold_shop_in.sum)` over one `aid`-day (the day is the session's `session_utc_day`); undefined (excluded) when the denominator is 0
 
 **Variables:**
 | Variable | Type | Range | Source | Description |
@@ -283,20 +291,24 @@ The volume formulas are defined as:
 | gold_spent.sum | int | ≥ 0 | calculated | F2-reassembled sum of 2703 slot 2 |
 | gold_tax_in.sum | int | ≥ 0 | calculated | Sum of 2701 slot 3 |
 | gold_shop_in.sum | int | ≥ 0 | calculated | Sum of 2702 slot 4 |
+| gold_upkeep.sum | int | ≥ 0 | calculated | Sum of 2704 `upkeep_charged` slot 2 (`paid`) |
 
-**Output Range:** 0 – unbounded; §19.5 targets 0.6 – 0.9. It is a **field check of the simulator's** §19.5 number, not a replacement for the Gold economy's S3 conservation test. It omits fund inflows that are not 2701/2702 (building output, rewards) until Gold economy confirms which types carry them (OQ-3).
-**Example:** spent 540,000, tax 400,000, shop 200,000 → 0.90.
+**Output Range:** 0 – unbounded. It measures the **guild fund only** (tax and shop fund part in; `fund_spent` and upkeep paid out). It is not the §19.5 whole-economy out/in ratio: wallet-side burns (`shop_cost`, enhancement) and mints are outside it, so it has **no target** and is never compared to §19.5's 60–90%. It omits fund inflows that are not 2701/2702 (building output, rewards) until Gold economy confirms which types carry them (OQ-3).
+**Example:** spent 440,000, upkeep paid 100,000, tax 400,000, shop 200,000 → 540,000 / 600,000 = 0.90.
 
 ## Edge Cases
 
-- **If consent is `unasked` or `declined`**: no tap, no file, no network. Session counters are not kept either, so granting later does not back-fill earlier play.
+- **If consent is `unasked`**: records and counters are held in memory only; no file, no ID, no network. If the app quits before the player answers, they are lost and the opt-in is shown again next launch. On *Allow* they are queued (R2); on *No thanks* they are discarded.
+- **If consent is `declined`**: the tap is registered but `inactive`; no record, file or network. Granting later does not back-fill earlier play.
+- **If the memory buffer fills while `unasked`** (the player closed the opt-in without answering and kept playing): raw records past `raw_per_session_max` are counted in `raw_overflow` as usual; counters keep counting. The buffer never exceeds `raw_per_session_max` raw records plus one counter per `ev`.
 - **If the player declines mid-session**: the tap's `active` flag drops every later record at once; the queue, counters and ID are deleted before the toggle's UI confirms. Records already received by the server stay under the old `aid` until deletion by request (OQ-4).
 - **If an allowlisted bus type is not registered in this build** (Wave-gated, VS-only or not built): it is dropped from the subscription list before `subscribe`, a dev-build warning names it, and boot proceeds (R5). A typo therefore cannot cause the bus boot error in Event bus R4.
 - **If the subscriber cap (16) would be exceeded by the tap**: the tap is not registered, a dev-build error names it, and the game boots normally with analytics limited to host signals. Analytics never takes the last slot from a gameplay subscriber (OQ-6).
 - **If the tap's batch holds 2,000 records** (hard-cap tick, or a large catch-up tick): every record is counted; raw-mode records beyond `raw_per_session_max` for the session are counted under `raw_overflow` and not queued.
 - **If an event arrives while `catching_up`**: it is collected and flagged `cu = 1` (R4), so offline-resolved bursts can be separated from live play.
 - **If the app is killed without a background callback**: counters were last persisted at the previous background (R6); the next launch writes that session's `session_end` with `p[0] = 0` (unknown duration) and its persisted summary. Play since the last background is lost from analytics only.
-- **If the device clock jumps** (manual change, time zone): `t_ms` uses the monotonic clock and is unaffected; F1 treats a negative wall-clock gap as 0; `utc_day` may be wrong and the server rejects batches whose `utc_day` is more than 1 day from receipt (R8 validation).
+- **If the device clock jumps** (manual change, time zone): `t_ms` uses the monotonic clock and is unaffected; F1 treats a negative wall-clock gap as 0; `session_utc_day` may be wrong, and the server drops that session's records if it falls outside `[receipt − queue_max_age_days, receipt + 1]` (R8). Time-zone changes do not matter, because the day is UTC.
+- **If a batch sits in the queue for days** (offline): it is uploaded later with its sessions' own days intact (R4, R6); only sessions older than `queue_max_age_days` are dropped, on both sides (R7, R8).
 - **If the queue is full and offline for days**: oldest raw records drop first, summaries last, `queue_dropped` counts the loss (R7). The queue never grows past `queue_cap_records`.
 - **If the server returns 4xx (schema or allowlist reject)**: the batch is dropped, not retried (a bad batch never becomes good), and `upload_rejected` is counted. 5xx and timeouts retry (F4).
 - **If two app instances run** (PC/Steam): the analytics file is locked by the first; the second runs without analytics.
@@ -314,12 +326,12 @@ The volume formulas are defined as:
 |---|---|---|---|
 | Event bus and history log (42) | Hard (for sim events) | `subscribe("analytics", 3700, type_ids, tap)` at boot; batch delivery R5; subscriber contract R6 | GDD exists (Needs Revision); conforms to it |
 | Ads (33) | Soft | R3 notice precedes the analytics opt-in; R12 host signals | GDD exists; its OQ-4 answered by R2 |
-| Settings (45) | Hard (for any collection) | Preferences key `analytics_consent`; Privacy section rows (toggle, *Reset analytics ID*) | GDD exists; key and rows not yet in it (**PROVISIONAL**, OQ-1) |
+| Settings (45) | Hard (for any collection) | Preferences key `analytics_consent`; Privacy section rows (toggle, *Reset analytics ID*) | GDD exists; key and rows requested from Settings (cross-cluster, OQ-1) |
 | Sim core (1) | Soft | `catching_up` and tick counts via the R15 facade, read between ticks | GDD exists |
 | Entitlement and feature flags (32) | Soft | `premium` entitlement at session start; events 3201–3203 | GDD exists |
 | In-app purchases (34) | Soft | R13 host signals | GDD exists |
 | Account and cloud save (7) | Soft | `sync_state_changed`, `conflict_detected` host signals | GDD exists |
-| Onboarding and tutorial (44) | Soft | Step-completed host signal with a stable step ID | **PROVISIONAL** — no GDD |
+| Onboarding and tutorial (44) | Soft | Events 4401 `onboarding_step_completed` (`a` = `row_id`), 4402 `onboarding_ended` via the existing tap | GDD exists (`onboarding-and-tutorial.md`, R3–R4, OQ-10) |
 | Localization (4) | Soft | Active locale code | GDD exists (lists Analytics as reader) |
 | Data layer (3) | Soft | Allowlist and knob storage | Storage form open (OQ-2) |
 
@@ -329,7 +341,7 @@ Analytics works with any subset: without the bus tap it sends host signals only;
 
 None in the game. Every gameplay system works identically with Analytics absent (R1). The backend dashboards (tooling, ADR) consume its records.
 
-**Bidirectional check.** Event bus, IAP, Account and cloud save, Localization, Recruitment, Golden Boss, Retention, Items, Skills, Member model, Member state machine, Rebirth and Zones GDDs already list Analytics as a soft downstream consumer. Member model (801–805) and Member state machine (4101–4103) list Analytics, but none of their types is in the initial allowlist; that is consistent (listing a consumer permits, not obliges, collection). Ads (33) and Entitlement (32) list Analytics. Settings (45) lists Analytics only as a reader of locale; it must add the `analytics_consent` key and the two Privacy rows (OQ-1). Onboarding (44) must list Analytics when designed.
+**Bidirectional check.** Event bus, IAP, Account and cloud save, Localization, Recruitment, Golden Boss, Retention, Items, Skills, Member model, Member state machine, Rebirth and Zones GDDs already list Analytics as a soft downstream consumer. Member model (801–805) and Member state machine (4101–4103) list Analytics, but none of their types is in the initial allowlist; that is consistent (listing a consumer permits, not obliges, collection). Ads (33) and Entitlement (32) list Analytics. Settings (45) lists Analytics only as a reader of locale; it must add the `analytics_consent` key and the two Privacy rows (OQ-1). Onboarding (44) lists Analytics for 4401/4402 (its row still says "PROVISIONAL, not designed"; stale on its side).
 
 ## Tuning Knobs
 
@@ -342,6 +354,7 @@ All live in the analytics config (storage OQ-2), never in simulation config; cha
 | `flush_interval_s` | 600 | 60 – 3,600 | Battery and data | Data arrives late for live dashboards |
 | `batch_max_records` | 500 | 100 – 2,000 | Many requests | Request body too large for the Edge Function limit |
 | `queue_cap_records` | 5,000 | 1,000 – 20,000 | Loss on long offline spells | Disk use (≈ 0.6 MB at 5,000 × 120 B; ≈ 2.4 MB at the top) |
+| `queue_max_age_days` | 30 | 7 – 90 | Players offline for a week lose their sessions | Late data skews cohorts already reported; server accepts very old days |
 | `raw_per_session_max` | 300 | 50 – 2,000 | Milestone loss in long sessions | Volume (F5) |
 | `retry_base_s` / `retry_max_s` | 30 / 3,600 | see F4 | Hammering the server in an outage | Slow recovery |
 | Allowlist rows (R5) | see table | — | Blind spots | `k̄` cost on the bus (F5) and volume |
@@ -388,7 +401,8 @@ Analytics contributes content to screens owned elsewhere:
 - **AC-1 [Integration] (R1)**: **GIVEN** a fixed seed and command script, **WHEN** the run is executed once with the analytics tap registered and consent `granted` and once without it, **THEN** the final state hash, `type_table_hash`, history snapshot and save bytes are identical.
 - **AC-2 [Logic] (R1)**: **GIVEN** the tap receives any batch, **WHEN** it returns, **THEN** it has made zero calls to `ctx.emit`, `ctx.submit`, `ctx.fail` or any history query (verified with a recording `ctx` double).
 - **AC-3 [Logic] (R1)**: **GIVEN** a headless host (balance simulator, verifier, parity harness), **WHEN** it boots, **THEN** no subscriber with `owner_id = "analytics"` is registered.
-- **AC-4 [Integration] (R2)**: **GIVEN** a fresh install with consent `unasked`, **WHEN** the player plays 10 minutes and backgrounds the app, **THEN** no analytics file exists and zero network requests to `analytics_ingest` were made.
+- **AC-4 [Integration] (R2)**: **GIVEN** a fresh install with consent `unasked`, **WHEN** the player plays 10 minutes and backgrounds the app, **THEN** no analytics file exists, no `analytics_id` exists and zero network requests to `analytics_ingest` were made.
+- **AC-4b [Integration] (R1, R2, D8)**: **GIVEN** a fresh install with consent `unasked`, **WHEN** the player wins a Golden Boss (1403) and completes onboarding step `row_id` 1 (4401) and then taps *Allow*, **THEN** the queue holds, under the new `aid` and `sid = 1`, a `session_start`, one `boss_won` and one `onb_step` with `p[0] = 1`, in arrival order. **GIVEN** the same play and *No thanks* instead, **THEN** no file, ID or request exists and later allowlisted events produce no record.
 - **AC-5 [Integration] (R2)**: **GIVEN** consent `granted` with 150 queued records, **WHEN** the player turns the Settings toggle off, **THEN** before the toggle confirms, the queue file, counters and `analytics_id` are deleted, and later allowlisted events produce no record.
 - **AC-6 [Logic] (R3)**: **GIVEN** consent `granted`, **WHEN** *Reset analytics ID* is used, **THEN** the new ID differs from the old one, `sid` restarts at 1, and the queue is empty.
 - **AC-7 [Logic] (R4)**: **GIVEN** every record type the system can produce, **WHEN** serialized, **THEN** each matches the R4 schema and no field contains `account_id`, `guild_uid`, any display string, or any value outside `[a-z0-9_]` in `ev` (schema test over a fixture of all allowlist rows).
@@ -399,13 +413,14 @@ Analytics contributes content to screens owned elsewhere:
 - **AC-12 [Integration] (R6)**: **GIVEN** a session with persisted counters, **WHEN** the process is killed without a background callback and relaunched, **THEN** the queue holds that session's `session_end` with `p[0] = 0` and its summary records.
 - **AC-13 [Logic] (R7)**: **GIVEN** `queue_cap_records` = 1,000 filled with 990 raw and 10 summary records, **WHEN** 20 more raw records arrive, **THEN** the queue holds 1,000 records, all 10 summaries remain, the 20 oldest raw records are gone, and `queue_dropped` = 20.
 - **AC-14 [Integration] (R8)**: **GIVEN** a mock ingest that drops the response of the first request, **WHEN** the client retries, **THEN** the server-side store holds each `(aid, sid, seq)` exactly once.
-- **AC-15 [Logic] (R8)**: **GIVEN** a 400 response, **THEN** the batch is deleted and `upload_rejected` increments; **GIVEN** a 503 or timeout, **THEN** the batch is kept and the next attempt waits per F4.
+- **AC-15 [Logic] (R8)**: **GIVEN** a 400 response, **THEN** the batch is deleted and `upload_rejected` increments; **GIVEN** a 503 or timeout, **THEN** the batch is kept and the next attempt waits per F4. **GIVEN** a summary batch containing `upload_rejected`, `queue_dropped` and `raw_overflow` records, **WHEN** it is validated against the published key list, **THEN** it is accepted.
+- **AC-15b [Logic] (R4, R6, R7)**: **GIVEN** a session started on UTC day 20,773 and uploaded on day 20,777, **THEN** its `session_start.p[1]` = 20,773 and the backend counts it on day 20,773 (F6). **GIVEN** a queued session with `session_utc_day` older than `queue_max_age_days` (30) at flush, **THEN** it is dropped and `queue_dropped` increases by its record count.
 - **AC-16 [Logic] (F2)**: **GIVEN** S = 5,000,000,000, **THEN** `sum_high` = 2 and `sum_low` = 705,032,704, and `sum_high × 2³¹ + sum_low` = S; **GIVEN** S = 0, **THEN** both are 0.
 - **AC-17 [Logic] (F3)**: **GIVEN** defaults, **WHEN** `queued` = 199 and 9 min since the last flush in the foreground, **THEN** `flush_now` is false; at `queued` = 200, or at 10 min, or on background, it is true; while a request is in flight it is false.
 - **AC-18 [Logic] (F4)**: **GIVEN** defaults and jitter fixed at 0 (injected), **WHEN** attempts 0, 3 and 10 fail, **THEN** delays are 30 s, 240 s and 3,600 s; with jitter fixed at ±0.2 the attempt-3 delay is 192 s / 288 s.
 - **AC-19 [Performance] (F5)**: **GIVEN** the P1 spike device and the max-roster fixture, **WHEN** the tap processes a 2,000-record batch of allowlisted types, **THEN** its p99 cost per record is ≤ the measured `c_route`, and the measured `E_budget` with the tap registered is ≥ `E_floor` (Event bus F1).
 - **AC-20 [Integration] (F5)**: **GIVEN** a 24 h offline return on the max-roster fixture, **WHEN** the session ends, **THEN** raw records ≤ `raw_per_session_max`, every record from catch-up ticks has `cu = 1`, and the uploaded batch is ≤ 100 KB compressed.
-- **AC-21 [Logic] (F6, F7)**: **GIVEN** a fixture of 10 `aid`s with known session days and gold sums, **WHEN** the backend KPI queries run, **THEN** D1/D7 and `gold_out_in_ratio` match hand-computed values, and an `aid`-day with zero inflow is excluded from F7.
+- **AC-21 [Logic] (F6, F7)**: **GIVEN** a fixture of 10 `aid`s with known session days and gold sums, **WHEN** the backend KPI queries run, **THEN** D1/D7 and `fund_out_in_ratio` match hand-computed values (440,000 spent + 100,000 upkeep over 400,000 tax + 200,000 shop → 0.90), and an `aid`-day with zero inflow is excluded from F7.
 - **AC-22 [Logic] (R9)**: **GIVEN** the network is down, the queue is full and the allowlist has a malformed row, **WHEN** the player plays, **THEN** no error dialog, toast or game error log entry appears in a release build.
 - **AC-23 [UI] (UI Requirements)**: **GIVEN** the first-launch prompt and the Settings privacy panel, **WHEN** shown in `vi` and `en`, **THEN** *Allow* and *No thanks* have equal size and weight, neither is pre-selected, and a retained screenshot of each is stored in `production/qa/evidence/`.
 
@@ -415,9 +430,9 @@ Analytics contributes content to screens owned elsewhere:
 
 | ID | Question | Owner | Target |
 |---|---|---|---|
-| OQ-1 | **PROVISIONAL: Settings (45)** — assumes a preferences key `analytics_consent` (`unasked`/`granted`/`declined`, default `unasked`) and two rows in its Privacy & ads section (toggle, *Reset analytics ID*), shown on every build including Steam/Web. **Ads (33)** — assumes the opt-in screen is sequenced right after its R3 notice, and that its OQ-4 is closed by R2 here (own opt-in, everywhere). Whether the store review accepts the notice + separate opt-in flow is unverified. | 45/33 authors | Next consistency pass |
+| OQ-1 | **Settings (45)** — cross-cluster request 2026-11-16: add the preferences key `analytics_consent` (`unasked`/`granted`/`declined`, default `unasked`) and two rows in its Privacy & ads section (toggle, *Reset analytics ID*), shown on every build including Steam/Web. **Ads (33)** — assumes the opt-in screen is sequenced right after its R3 notice, and that its OQ-4 is closed by R2 here (own opt-in, everywhere). Whether the store review accepts the notice + separate opt-in flow is unverified. | 45/33 authors | Next consistency pass |
 | OQ-2 | **Schema change, not decided in this run:** where the R5 allowlist and the Tuning Knobs live. Proposed: a new `data/analytics_events.csv` (`source`, `ev`, `mode`, `sum_slot`, `min_wave`) validated by `content_validator`, plus analytics keys in a non-sim config so changes never bump `sim_version`. Needs Data layer (3) approval. | Data layer owner + user | Before Alpha implementation |
-| OQ-3 | **PROVISIONAL: Gold economy (27)** — which event types carry *all* fund inflows (building output, quest/raid rewards) so F7 covers every inflow, and confirmation of the 2701 slot 3 / 2702 slot 4 / 2703 slot 2 meanings. | Gold economy author | Next consistency pass |
+| OQ-3 | **Gold economy (27)** — which event types carry *all* fund inflows (building output, quest/raid rewards) so F7 covers every inflow; and, separately, whether a whole-economy mint/burn measure (by ledger entry type) should be collected so the §19.5 60–90% target can be field-checked. F7 is fund-only until then (2701 slot 3 / 2702 slot 4 / 2703 slot 2 / 2704 slot 2 confirmed against Gold economy F8). | Gold economy author | Next consistency pass |
 | OQ-4 | Legal: is the opt-in pseudonymous design enough for GDPR/PDPD (Vietnam Decree 13/2023) and Play Data safety; does the backend's country lookup from IP count as location collection; how is a deletion request by `aid` served; what age-gating applies. Not legal advice (§14). | User (legal review) | Before Wave 1 store submission (P7) |
 | OQ-5 | Backend cost: F5's 110–770 MB/day at 10,000 DAU against the Supabase tier, and a server-side retention period for raw records (proposed 13 months, aggregates kept). | User + devops | Before Alpha launch |
 | OQ-6 | Subscriber budget: Event bus caps subscribers at 16. Confirm the planned set (41, 25, 37, 44, and any others) leaves room so the tap never displaces a gameplay subscriber. | Event bus author | Next consistency pass |

@@ -1,6 +1,6 @@
 # Deterministic RNG
 
-> **Status**: In Review — revised twice on 2026-11-16 after `/design-review`: first review NEEDS REVISION with 10 blockers, re-review NEEDS REVISION with 9 blockers, both applied (see `design/gdd/reviews/deterministic-rng-review-log.md`). Awaiting re-review
+> **Status**: Designed (pending re-review) — revised on 2026-11-16 after `/design-review`: first review NEEDS REVISION with 10 blockers, re-review NEEDS REVISION with 9 blockers, both applied; revision round of 2026-11-16 closed the stale dependency rows (see `design/gdd/reviews/deterministic-rng-review-log.md`)
 > **Creative Director Review (CD-GDD-ALIGN)**: NOT ASSESSED 2026-11-16 — no game pillars (`design/gdd/game-pillars.md` and `game-concept.md` absent). Player Fantasy alignment was checked and the rules deliver it (R3, R10). Re-run once pillars exist.
 > **Author**: user + Claude
 > **Last Updated**: 2026-11-16
@@ -15,7 +15,7 @@ Deterministic RNG is the game's only source of randomness. Every random event �
 
 ## Overview
 
-Deterministic RNG is the single source of randomness for the whole simulation. It is a seeded PCG32 generator (XSH-RR variant, 64-bit state, 32-bit output) that, given the same seed, produces the same sequence of numbers on every machine and in every implementation of the game — the Python reference core in `sim/` today, the Godot port tomorrow, and the leaderboard verifier on the server. Every outcome that is not fixed by data — damage variance, which monster spawns, what drops, which candidate walks through the guild gate, whether an enhancement attempt succeeds — is drawn from it. The player never touches this system directly; they experience what it guarantees: a guild that behaves the same way when the simulation runs live, when it catches up after eight hours offline, and when the same day is replayed to check a leaderboard score. Without it, the game's core technical promise (GDD §3.2: one headless simulation shared by realtime play, offline fast-forward, the balance simulator and server-side checks) cannot hold, because any engine-provided random function differs between platforms, versions and runs. The system's scope is the generator, the derived draws built on it (uniform float, bounded integer, choice, chance), how independent streams are created for different consumers, and how its state is saved and restored; it deliberately owns no game rules — callers decide what a draw means.
+Deterministic RNG is the single source of randomness for the whole simulation. It is a seeded PCG32 generator (XSH-RR variant, 64-bit state, 32-bit output) that, given the same seed, produces the same sequence of numbers on every machine and in every implementation of the game — the Python reference core in `sim/` today, the Godot port tomorrow, and the leaderboard verifier on the server. Every outcome that is not fixed by data — damage variance, which monster spawns, what drops, which candidate walks through the guild gate, whether an enhancement attempt succeeds — is drawn from it. The player never touches this system directly; they experience what it guarantees: a guild that behaves the same way when the simulation runs live, when it catches up after up to 12 hours offline (the offline cap, Offline progress R4), and when the same day is replayed to check a leaderboard score. Without it, the game's core technical promise (GDD §3.2: one headless simulation shared by realtime play, offline fast-forward, the balance simulator and server-side checks) cannot hold, because any engine-provided random function differs between platforms, versions and runs. The system's scope is the generator, the derived draws built on it (uniform float, bounded integer, choice, chance), how independent streams are created for different consumers, and how its state is saved and restored; it deliberately owns no game rules — callers decide what a draw means.
 
 ## Player Fantasy
 
@@ -42,7 +42,7 @@ This framing is honest about one limit: offline progress samples trips rather th
 
 **R1 — One generator algorithm.** All simulation randomness comes from PCG32 XSH-RR (64-bit state, 64-bit increment, 32-bit output), exactly as specified in Formulas F1. Engine-provided random functions (Godot `randf()`, `randi()`, `RandomNumberGenerator`, Python `random`) are forbidden inside the simulation core and in any code whose result reaches the simulation. They may be used only for presentation that never feeds back (for example, idle sprite jitter).
 
-**R2 — The world seed.** Each save has exactly one `world_seed`, an unsigned 64-bit integer chosen once when a new guild is created and stored in the save forever. It is the only entropy the simulation ever receives. It is chosen from OS or platform entropy at new-game time; it is never derived from the wall clock alone. Tests, the balance simulator and leaderboard replay pass it explicitly.
+**R2 — The world seed.** Each save has exactly one `world_seed`, an unsigned 64-bit integer chosen once when a new guild is created and stored in the save forever. It is the only entropy the simulation ever receives. A signed-64-bit port (GDScript) holds it in an `int` with the same 64-bit pattern, so values of 2⁶³ or more read as negative there; every consumer (Sim core, Local save) treats it as that bit pattern, never as a signed quantity. It is chosen from OS or platform entropy at new-game time; it is never derived from the wall clock alone. Tests, the balance simulator and leaderboard replay pass it explicitly.
 
 - **A client-chosen seed is never trusted for ranking.** The verifier (35) replays a client's `world_seed` to check that the reported results follow from it. It must not treat a seed the client chose as evidence that the run was fair, because a player can scan seeds offline for a lucky start (seed shopping). How ranked guilds get an acceptable seed is owned by Leaderboards and anti-cheat (35), OQ-2.
 
@@ -71,7 +71,7 @@ This framing is honest about one limit: offline progress samples trips rather th
 | 17 | quest_roll | Quests (25) | one daily or weekly quest selection |
 | 18 | trait_reveal | CA/PA and traits (9) | one trait-reveal check |
 
-Systems not yet designed may request more IDs; IDs 1–18 are reserved for the owners listed even if their GDDs later rename the event.
+A new consumer requests the next unused ID (19) through a revision of this GDD; IDs 1–18 are reserved for the owners listed even if their GDDs later rename the event.
 
 **R5 — Event keys.** An event key is an ordered list of unsigned 64-bit integers that uniquely identifies the event inside its domain for the lifetime of the save. The owning system defines the key layout in its own GDD (for example combat: `[party_id, trip_ordinal, encounter_ordinal]`). Every key component must itself be deterministic and saved: stable entity IDs, per-entity ordinal counters, integer simulation time in milliseconds, and content IDs given as the integer `uid` of the content row. Never allowed in a key: wall-clock time, floating-point values, object or memory identities, hash-map iteration order, frame counts, or anything that differs between Python and the engine port.
 
@@ -139,7 +139,7 @@ Names are normative; the Python reference and the engine port expose the same su
 - **`new_world_seed` arguments:**
   - **`entropy_fn() -> int`** returns 64 random bits as an integer in 0 … 2⁶⁴−1 (signed ports: any 64-bit pattern). It has **failed** if it raises, or (Python) returns a non-integer or an out-of-range value. If it succeeds, the result is `(that value, false)`.
   - **`clock_fn() -> int`** returns wall-clock nanoseconds since the Unix epoch as an integer. Ports whose clock is in milliseconds or float seconds convert to integer nanoseconds.
-  - **`install_id: uint64 | None`** is a 64-bit random value created once at first launch and kept in platform settings, not in the save. It is not a hash of a device identifier.
+  - **`install_id: uint64 | None`** is a 64-bit random value created once at first launch and kept in platform settings (the store Settings (45) defines), not in the save. It is not a hash of a device identifier.
   - **Fallback:** if `entropy_fn` fails, the result is `(mix(clock_fn() ^ install_id), true)`, using F2's `mix`. If `install_id` is also `None`, the call fails (R9), because R2 forbids a seed from the clock alone. New-guild creation then shows an error rather than creating a guild.
 - **Unique-key tracking.** The tracking scope is one `RngFactory`, so one simulation run. Each test builds its own factory.
   - **What is stored:** the set holds `(domain_id, full key)` pairs, so a repeat means exactly the same event, and a 64-bit seed collision never causes a false failure. In Python each entry costs roughly 100–200 bytes.
@@ -362,7 +362,7 @@ The chance formula is defined as:
 
 **Upstream (this system depends on): none.** RNG is Foundation-layer. It needs no other system to function; the only things it is given are inputs (`world_seed`, domain ID, event key) supplied by its callers.
 
-**Downstream (systems that depend on this one).** None has a GDD yet; each must list Deterministic RNG in its own Dependencies section and state its domain ID, event-key layout, key-uniqueness argument (R6) and in-event draw order (R7).
+**Downstream (systems that depend on this one).** Every system below has a GDD. Each lists Deterministic RNG in its own Dependencies section and states its domain ID, event-key layout, key-uniqueness argument (R6) and in-event draw order (R7).
 
 | System (#) | Hard / soft | Interface | Domain ID(s) |
 |---|---|---|---|
@@ -385,12 +385,13 @@ The chance formula is defined as:
 | Offline progress (31) | Hard | One generator per sampled trip | 5 |
 | Leaderboards and anti-cheat (35) | Hard | Replays summaries from `world_seed` + command log + sim version (R12, Edge Cases) | — |
 | Dev tooling and parity harness (43) | Hard | Owns the golden-vector files that prove R12 across implementations | — |
+| Settings (45) | Soft | Owns the platform-settings store that keeps `install_id` (API Contract, `new_world_seed`) | — |
 
 "Hard" means the dependent system cannot produce its outcomes without this one. The only soft dependent is Utility AI, which uses randomness only to break exact ties.
 
 **Not dependents:** Realtime world view (38) and Audio (40) may use engine random functions for cosmetic effects that never feed the simulation (R1); they must not depend on this system.
 
-**Consistency note for the systems index.** The index lists RNG as a dependency of systems 1, 10, 31, 35 and 43 only. Systems 9, 11, 12, 14, 15, 16, 17, 18, 19, 24, 25, 26 and 28 also draw from it (table above) but their index rows do not list it. Phase 5 of this design session proposes adding it, so the dependency is recorded in both directions.
+**Consistency note for the systems index.** Re-verified 2026-11-16: every system in the table above lists RNG in its systems-index row, so the dependency is recorded in both directions.
 
 ## Tuning Knobs
 
@@ -428,17 +429,17 @@ Not applicable — no screen or HUD element. Systems that show odds (for example
 
 ## Cross-References
 
-No dependency has a GDD yet; every row below points at the systems index and the source GDD, and must be re-checked when the referenced GDD is written.
+Every referenced system now has a GDD (re-verified 2026-11-16).
 
 | This GDD references | Referenced system / document | What is referenced | Status |
 |---|---|---|---|
-| Core Rules R2, R11 | Local save and migration (6) | Save persists `world_seed`; owners persist ordinal counters | GDD not written |
-| Core Rules R4 table | Systems 9, 10, 11, 12, 14, 15, 16, 17, 18, 19, 24, 25, 26, 28, 31 | Each owns its domain ID, key layout and draw order | GDDs not written |
-| Edge Cases (save-scumming) | Recruitment (15), Enhancement (24), Crafting (28) | Player-gamble keys must use attempt ordinals | GDDs not written |
+| Core Rules R2, R11 | Local save and migration (6) | Save persists `world_seed`; owners persist ordinal counters | `local-save-and-migration.md` |
+| Core Rules R4 table | Systems 9, 10, 11, 12, 14, 15, 16, 17, 18, 19, 24, 25, 26, 28, 31 | Each owns its domain ID, key layout and draw order | Each system's GDD (Dependencies table above) |
+| Edge Cases (save-scumming) | Recruitment (15), Enhancement (24), Crafting (28) | Player-gamble keys must use attempt ordinals | `recruitment.md`, `equipment-enhancement.md`, `crafting-and-recipes.md` |
 | Core Rules R5, F5, F6 | Data layer and content pipeline (3) | Append-only integer `uid` column on every keyed or chosen table; probabilities stored as `_ppm` integers; validator checks both | design/gdd/data-layer-and-content-pipeline.md (R4 `ppm` type and `uid` order, R6 `uid` column, F4 assignment) |
-| Edge Cases (offline/live) | Offline progress (31) | Which counters offline advances | GDD not written |
-| Edge Cases (version), seed shopping | Leaderboards and anti-cheat (35) | Summaries carry sim version; seed-shopping policy | GDD not written |
-| Acceptance Criteria AC-21, AC-22 | Dev tooling and parity harness (43) | Golden-vector files and the parity gate | GDD not written |
+| Edge Cases (offline/live) | Offline progress (31) | Which counters offline advances | `offline-progress.md` |
+| Edge Cases (version), seed shopping | Leaderboards and anti-cheat (35) | Summaries carry sim version; seed-shopping policy | `leaderboards-and-anti-cheat.md` |
+| Acceptance Criteria AC-21, AC-22 | Dev tooling and parity harness (43) | Golden-vector files and the parity gate | `dev-tooling-and-parity-harness.md` (R5–R8, R14) |
 | Player Fantasy | `JX1_Tycoon_GDD.md` §5.2, §10, §11.2 | Luck trait, offline report, "do not sell power" | Source GDD v1.0 |
 | Formulas, Core Rules | `GODOT_PORT.md` rules 1–2 | Logical right shift; draw order as contract | Existing doc |
 | Formulas F1, AC-01 | `sim/rng.py`, `tests/test_core.py::TestRng` | Current implementation and reference vectors | Existing code |
@@ -491,7 +492,7 @@ All criteria are **Logic** story type unless tagged **Integration**. Each Logic 
   - **GIVEN** `entropy_fn` returning `0x0123456789abcdef`, **WHEN** `new_world_seed(entropy_fn, clock_fn, install_id=7)` is called, **THEN** it returns `(0x0123456789abcdef, false)` and `clock_fn` is not called.
   - **GIVEN** an `entropy_fn` that raises, `clock_fn` returning `1000` and `install_id = 7`, **THEN** it returns `(mix(1000 ^ 7), true)` = `(0xe637bb4c9e7d0985, true)`. The same result follows *(Python only)* from an `entropy_fn` returning `None`, `−1` or `2⁶⁴`.
   - **GIVEN** an `entropy_fn` that raises and `install_id = None`, **THEN** the call fails (R9) and returns no seed.
-  - **[PENDING: needs Local save (6)]** The save records the `used_fallback` flag.
+  - **Integration, [PENDING: needs the Local save (6) implementation]** The save records the `used_fallback` flag in its `seed_used_fallback` envelope field (Local save, envelope).
 
   *(R2, Edge Cases.)*
 
@@ -532,7 +533,7 @@ All criteria are **Logic** story type unless tagged **Integration**. Each Logic 
   - **(c) Changed inputs, same dice.** **GIVEN** a save taken just before a hunt, **WHEN** the first fight's `event_seed` and first draw are recorded in a run with the party's equipment unchanged and in a run where one member's weapon was swapped after the reload, **THEN** both runs have the same `event_seed` and first draw for that fight.
 
   *(Edge Cases: save-scumming; R5 no player-mutable state in keys.)*
-- **AC-21** — **[PENDING: needs an engine (`/setup-engine`) and the core port]** — **GIVEN** the golden-vector file produced by Dev tooling (43) from the Python reference (AC-01, AC-04, AC-05, AC-11–AC-16 inputs and outputs), **WHEN** the engine implementation runs the same inputs, **THEN** every integer and boolean output matches exactly and every float matches bit for bit. Error cases are in the file with an `error` marker in place of an output, and only for inputs both ports can express (R5). The file includes the GDScript spelling `[−1]` of the key `[2⁶⁴−1]` with the same expected seed. *(R12.)*
+- **AC-21** — **[PENDING: needs the Godot 4.7 GDScript core port and its parity runner (Dev tooling R14)]** — **GIVEN** the golden-vector file produced by Dev tooling (43) from the Python reference (AC-01, AC-04, AC-05, AC-11–AC-16 inputs and outputs), **WHEN** the engine implementation runs the same inputs, **THEN** every integer and boolean output matches exactly and every float matches bit for bit. Error cases are in the file with an `error` marker in place of an output, and only for inputs both ports can express (R5). The file includes the GDScript spelling `[−1]` of the key `[2⁶⁴−1]` with the same expected seed. *(R12.)*
 - **AC-22** — **[PENDING: needs Dev tooling and parity harness (43)]** — **GIVEN** the golden-vector file, **WHEN** a draw is added, removed or reordered inside any event type that has vectors in that file and the parity harness runs, **THEN** it fails until the sim version is bumped and the vectors are regenerated. Each event type that draws must have at least one vector in the file. *(R7.)*
 
 **Performance**
@@ -547,7 +548,7 @@ All criteria are **Logic** story type unless tagged **Integration**. Each Logic 
 - **AC-25** — **GIVEN** two factories with `world_seed = 42`, **WHEN** draws on `derive(1, [7, 3, 0])` from the first are interleaved with draws on `derive(2, [5])` from the second, **THEN** each sequence equals the same draws taken alone. *(API Contract: no global state.)*
 
 *QA lens applied (`references/lens-qa-lead.md`; revised after the second `/design-review` 2026-11-16).* Coverage check: F1–F6, R1, R3–R9, R11, R12 and the API Contract each have at least one criterion. R2 seed immutability across save and load belongs to Local save (6) (OQ-4). R10 is delegated to the owning GDDs (gap 3). Boundary values are tested for F1–F6, including the 16-component key. Cross-system criteria are tagged Integration and PENDING with the system they wait for. **Known gaps:**
-1. AC-21 and AC-22 cannot run until an engine is chosen and the parity harness exists.
+1. AC-21 cannot run until the Godot core port exists; AC-22 until the parity harness exists.
 2. Today's `sim/rng.py` passes only AC-01, AC-02 and the uniformity parts of AC-13 and AC-17. Everything else needs the OQ-1 migration.
 3. R10 (no rigging) and the R5 "no player-mutable state" rule cannot be verified by a test of this system alone. Each consuming system's GDD must carry a criterion that its luck modifiers change only draw inputs, and that its key has no player-mutable component.
 4. R8 ("no other derived draw") is enforced by code review of the RNG module, not by a test.
@@ -557,8 +558,8 @@ All criteria are **Logic** story type unless tagged **Integration**. Each Logic 
 | # | Question | Owner | Resolve by |
 |---|---|---|---|
 | OQ-1 | **Migrating `sim/rng.py` to this spec.** The code today uses one shared generator passed through every call, an unused `fork()`, and `randint` without rejection. Moving to per-event seeding (R3, F2) and exact `randint` (F4) changes every simulated outcome once, so `balance_sim` and `calibrate` must be re-run and the §4.3 and §18 numbers in `JX1_Tycoon_GDD.md` re-measured. The order: implement F2 and F4 with tests, switch all call sites in one change, then recalibrate. Old `randint` gives the same value as F4 on every draw that is not rejected, so only the streams change, not how a draw maps to a value. Known hazards: (a) old `randint(b < a)` silently returns `a`, but R9 makes it fatal, so audit `sim/hunt.py:91` (CSV `qty_min`/`qty_max`); (b) `hunt.py` and `raid.py` thread one generator through a whole run, so splitting them into R3 events is a redesign of those loops, not a rename; (c) `rng.random() < tank_aggro_share` uses a float config probability, so convert it to ppm or justify `chance()`; (d) `drop_tables.csv` still has a float `chance` column, which must become `_ppm` (Data layer); (e) tests that build `PCG32(n)` directly move to factory + domain + key and are re-baselined; (f) delete `fork()`. | Implementation (story for this GDD) + Dev tooling (43) | Before Combat (10) implementation starts |
-| OQ-2 | **Seed shopping** for leaderboard advantage (accepted for now; see Edge Cases). Options: account-age rule, server-issued seed, or accept. | Leaderboards and anti-cheat (35) | When the Leaderboards GDD is written (Alpha) |
+| OQ-2 | **RESOLVED by Leaderboards and anti-cheat (35), Edge Cases:** seed shopping is accepted, with one ranked guild per account and a new guild ending the old chain (Leaderboards R10). | Leaderboards and anti-cheat (35) | Closed |
 | OQ-3 | **Event-key layouts** for each of the 18 domains, with their uniqueness arguments (R5, R6). This GDD sets the rules; each owner writes its own. | Each owning system's GDD | As each GDD is written |
-| OQ-4 | **Save format for `world_seed` and the entropy-fallback flag.** | Local save and migration (6) | When the Local save GDD is written (MVP, design order 10) |
-| OQ-5 | **Engine choice** decides how AC-21 runs and which integer-width pitfalls the port faces. A web/TypeScript port needs its own port rules: `BigInt` with `BigInt.asUintN(64, …)` (JS `Number` is exact only to 2⁵³, and `>>`/`>>>` are 32-bit), `BigInt` key components, and the world-seed hex helpers. Its derive cost must then be measured against the offline budget, which AC-23 does not gate. | `/setup-engine` (user) | Before Architecture |
+| OQ-4 | **RESOLVED by Local save and migration (6):** `world_seed` travels in the core snapshot, and the envelope field `seed_used_fallback` stores the `used_fallback` flag. | Local save and migration (6) | Closed |
+| OQ-5 | **RESOLVED 2026-11-16: the engine is Godot 4.7, GDScript** (`project.yaml`), so the signed-64-bit port rules above apply and AC-21 runs through Dev tooling R14. The rest of this row is kept for a possible later web port only. Engine choice decides how AC-21 runs and which integer-width pitfalls the port faces. A web/TypeScript port needs its own port rules: `BigInt` with `BigInt.asUintN(64, …)` (JS `Number` is exact only to 2⁵³, and `>>`/`>>>` are 32-bit), `BigInt` key components, and the world-seed hex helpers. Its derive cost must then be measured against the offline budget, which AC-23 does not gate. | `/setup-engine` (user) | Before Architecture |
 | OQ-6 | **Commit points for player gambles.** Fixed dice can be probed by reloading with different inputs (Edge Cases, accepted). Should Enhancement (24), Recruitment (15) and Crafting (28) consume and save their attempt ordinal when an attempt is dispatched? | Each gamble GDD | As each GDD is written |

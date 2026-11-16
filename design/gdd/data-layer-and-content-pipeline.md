@@ -1,17 +1,17 @@
 # Data Layer and Content Pipeline
 
-> **Status**: In Design
+> **Status**: Designed (pending re-review) — revised 2026-11-16 after `/design-review` (NEEDS REVISION, 3 blockers applied; see `design/gdd/reviews/data-layer-and-content-pipeline-review-log.md`)
 > **Author**: user + Claude
-> **Last Updated**: 2026-11-16 (revised after /consistency-check: RNG uid/ppm contract adopted)
+> **Last Updated**: 2026-11-16 (revision round: uid ledger, drop-row identity, per-key parameter schema)
 > **Last Verified**: 2026-11-16
 > **Implements Pillar**: none yet (no `design/gdd/game-pillars.md`)
 > **Creative Director Review (CD-GDD-ALIGN)**: NOT ASSESSED 2026-11-16 — no game pillars, game concept or game brief to check against; Player Fantasy is anchored to locked `JX1_Tycoon_GDD.md` lines instead. Re-run after pillars exist.
 
 ## Summary
 
-The data layer carries all game content from the designer's spreadsheets to the simulation. The pipeline is CSV in `data/`, then a validator that refuses bad data, then 19 typed, read-only tables keyed by permanent IDs. Players never see it. What they feel is that their guild survives every update, that offline and leaderboard results come from exactly the content that was tested (a content hash proves which content was used), and that each wave of content arrives whole and never leaks early. Read this GDD before designing any system that reads content tables, uses content IDs in RNG event keys, or stores content in saves.
+The data layer carries all game content from the designer's spreadsheets to the simulation. The pipeline is CSV in `data/`, then a validator that refuses bad data, then typed, read-only tables (the R2 inventory, 19 today) keyed by permanent IDs. Players never see it. What they feel is that their guild survives every update, that offline and leaderboard results come from exactly the content that was tested (a content hash proves which content was used), and that each wave of content arrives whole and never leaks early. Read this GDD before designing any system that reads content tables, uses content IDs in RNG event keys, or stores content in saves.
 
-> **Quick reference** — Layer: `Foundation` · Priority: `MVP` · Key deps: `None` (soft: Localization, for the validator's name-coverage check) · Feasibility: NOT SOURCEABLE (no engine core/scripting reference; engine not chosen — OQ-6)
+> **Quick reference** — Layer: `Foundation` · Priority: `MVP` · Key deps: `None` (soft: Localization, for the validator's name-coverage check) · Feasibility: NOT SOURCEABLE (engine pinned to Godot 4.7 GDScript, but `docs/engine-reference/godot/modules/` has no core or scripting module — OQ-6)
 
 ## Overview
 
@@ -34,7 +34,7 @@ Without it, content would be hard-coded, which §20 rule 1 forbids. Every number
 
 **1. "My guild survives every update."** A content patch arrives. The player opens the game, and every member is still there with the same gear, the same school, the same rebirth count and the same history. Nothing is renamed out from under them, and no item turns into something else. The anchor is §16: *"Code và data chỉ dùng ID bất biến … Đổi tên không đụng code, không đổi save"* (code and data use only immutable IDs; renaming touches neither code nor saves). The design must therefore treat IDs as permanent. An ID is never reused, never repointed, and never deleted while any save could hold it.
 
-**2. "The numbers are honest."** The player returns after eight hours to an offline report, or checks a leaderboard rank, and believes it. The tables that produced those results are the tables the balance simulator measured and the server verifier replays. The anchor is §3.2: one deterministic, headless core shared by realtime play, offline fast-forward, the balance simulator and leaderboard checks. The design must therefore make the running build's content provably identical to the validated content, so the build can name exactly which tables it runs (F1) and the RNG replay rule (R12 of Deterministic RNG) has something to check against.
+**2. "The numbers are honest."** The player returns after up to twelve hours (the offline cap) to an offline report, or checks a leaderboard rank, and believes it. The tables that produced those results are the tables the balance simulator measured and the server verifier replays. The anchor is §3.2: one deterministic, headless core shared by realtime play, offline fast-forward, the balance simulator and leaderboard checks. The design must therefore make the running build's content provably identical to the validated content, so the build can name exactly which tables it runs (F1) and the RNG replay rule (R12 of Deterministic RNG) has something to check against.
 
 **3. "A new wave opens the map."** When Wave 2 goes live, five new schools, new zones and their monsters, drops and recipes appear together, as one event the player can feel. Before that day, none of it appears: no Wave 2 item in a Wave 1 drop and no Wave 2 recipe in a Wave 1 forge. The anchor is §12.2: *"Ra mắt theo wave nhưng plan đầy đủ cho tất cả ngay từ đầu"* (launch in waves, but plan everything up front). The design must therefore make wave gating total, so no live row can reach a row that is not live.
 
@@ -51,7 +51,7 @@ What breaks each promise: a reused or repointed ID breaks 1; content that differ
 - Generator scripts (`tools/gen_a.py`, `gen_b.py`, `gen_c.py`) are authoring aids that write CSV. Their output goes through the same validator as hand-written rows.
 - Nothing at runtime writes to `data/`.
 
-**R2 — Table inventory.** The loader loads **all 19 tables**. A table that the validator checks and the loader does not load is a defect. Today `recipes`, `buildings`, `building_meta`, `enhance`, `quests`, `rebirth` and `traits` are validated but not loaded. Each table's row key is fixed:
+**R2 — Table inventory.** The loader loads **every table in this inventory** (19 today; tables approved below join it when built). Wherever this GDD or another says "all tables", it means this inventory, never a fixed count. A table that the validator checks and the loader does not load is a defect. Today `recipes`, `buildings`, `building_meta`, `enhance`, `quests`, `rebirth` and `traits` are validated but not loaded. Each table's row key is fixed:
 
 | Table | Kind | Row key | `wave` column |
 |---|---|---|---|
@@ -64,7 +64,7 @@ What breaks each promise: a reused or repointed ID breaks 1; content that differ
 | `golden_bosses` | content | `id` | yes (exists) |
 | `materials` | content | `id` | add |
 | `items` | content | `id` | add |
-| `drop_tables` | content | `table_id` (ordered group of rows) | add, per row |
+| `drop_tables` | content | (`table_id`, `ref`): one row per entry of a group; a group lists each `ref` at most once (validator ERROR otherwise; true of all 315 rows today) | add, per row |
 | `recipes` | content | `id` | add |
 | `building_meta` | content | `id` | yes (exists) |
 | `buildings` | content | (`building_id`, `level`) | add, per level row |
@@ -88,6 +88,13 @@ Adding a table means adding a row here, a schema (R4) and a loader entry. Nothin
 - **Probabilities are integers.** Every column whose value is used directly as a draw probability has type `ppm`: an integer from 0 to 1,000,000, with the column suffix `_ppm`. It goes through `chance_ppm` (Deterministic RNG F6), never through a float. A float parsed from CSV can differ by one ulp between implementations and flip a draw at the boundary; an integer cannot. Today two columns qualify: `drop_tables.chance` becomes `drop_chance_ppm`, and `enhance.success_pct` becomes `success_ppm`. The `_pct` multipliers that are not draw probabilities, such as `guild_tax_pct` and `flee_hp_pct`, stay `float`. A probability computed at run time from those multipliers belongs to the owning system (RNG F6 `chance(p)`).
 - **Conversion at load:** each value is converted once, when it is loaded. A packed column (`stats`, `effects`, `monster_pool`, `inputs`, `cost_mats`, `rewards`, `mechanics`, `conflicts`, `ai_skills`, `reward_items`) becomes a real list or map at load time. No system re-parses a string afterwards.
 - **Failure:** a value that does not convert fails the load (see States).
+- **Parameter tables are typed per key.** `config` and `sim_params` have one `value` column, so their schema is a per-key table in the shared schema module: `key → (type, range, owning GDD)`, using the column types above (`int`, `float`, `ppm`, `bool`, `str`, `enum`, `list(<type>)`). Each `value` is converted once at load by its key's declared type, like any column. The validator rules:
+  - a key in the CSV that the schema does not declare: ERROR (`unknown key`)
+  - a key the schema declares that the CSV lacks: ERROR (`missing key`). There are no schema defaults, for the same reason as Edge Cases (empty cell): a missing value must never quietly become a permissive one
+  - a value outside its declared type or range: ERROR naming the key
+  - a key ends in `_ppm` exactly when its type is `ppm`; a `_pct` key is never `ppm`
+
+  A key approved in a GDD (Approved schema additions) enters the per-key schema in the same change as its CSV row and its validator rule. `sim_roles` is an ordinary typed table (one column per multiplier) and needs no per-key schema.
 - **Frozen:** after load, every table, row, list and map is read-only for the life of the process. A system that needs mutable state copies values into its own state. It never edits the content table.
 - **Deterministic order:** every table, every `drop_tables` group and every `list(ref)` or `map(ref)` cell is exposed in ascending `uid` order (R6), never in file row order. That is the order RNG F5 requires for `choice` and for weighted picks. File order is only a convenience for the people editing the spreadsheet, so reordering rows changes nothing the simulation does.
 - **Constants:** the constants `sim/data.py` and the validator duplicate today move into data. Level caps and the rebirth-to-wave mapping come from `rebirth.csv` (`new_level_cap`, `wave`). The element set and the Five Elements counter cycle are declared once in the schema module. Neither the loader nor the validator holds a private copy.
@@ -102,12 +109,14 @@ Adding a table means adding a row here, a schema (R4) and a loader entry. Nothin
 **R6 — Content `uid`s.** Every content table carries an integer `uid` column, which is the column Deterministic RNG R5 requires and assigns to this system. In `drop_tables` each row has its own `uid`. The rules:
 - **Range and reserved value:** `uid` is an integer from 1 to 2³²−1. The value 0 (`content_id_none`) means "none" and is never assigned.
 - **Global uniqueness:** one namespace across all tables, the same as IDs (R3), so a `uid` alone identifies a row anywhere: in an event key, in a save, or in a log.
-- **Append-only:** a new row gets the next unused `uid` (F4). A row's `uid` is never changed, never reused for another row, and never freed. That includes retired rows, because retired rows stay in their tables (R3).
+- **Append-only:** a new row gets the next unused `uid` (F4). A row's `uid` is never changed, never reused for another row, and never freed. That includes retired rows, because retired rows stay in their tables (R3), and deleted rows, because their ledger entry stays (below).
+- **The `uid` ledger.** `data/meta/uid_ledger.csv` (columns `uid`, `table`, `row_key`) is the permanent record of every `uid` ever assigned, one line per assignment, in ascending `uid` order. It is committed with the tables. It is not a content table: it is outside the `data/*.csv` glob (Edge Cases, unknown table), the loader does not read it, and it is not part of F1, because it changes no outcome. Only the uid helper writes it, and only by appending.
 - **Purpose:** content IDs enter RNG event keys as their `uid` (RNG R5). Lists are ordered by `uid` (R4, RNG F5). Saves may store a `uid` wherever a compact ID helps.
-- **Validator checks:** the validator fails if any row lacks a `uid`, if any `uid` is used twice, or if any (row key, `uid`) pair present in the last committed version (git `HEAD`) has changed. A pair that has disappeared because its row was deleted is a WARN before launch and an ERROR after (OQ-2).
-- **Authoring:** a helper fills empty `uid` cells using F4, so authors never pick numbers by hand.
+- **Validator checks, against the ledger (no git needed):** ERROR if any row lacks a `uid`; if any `uid` is used twice; if a row's (`table`, row key, `uid`) does not match its ledger line (a changed `uid`, or a `uid` moved to another row); or if a row has a `uid` the ledger does not hold. A ledger line whose row no longer exists is a deleted row: WARN (`removed row`) before launch and ERROR after (OQ-2). Its `uid` stays reserved.
+- **Validator check, against history:** the ledger is append-only. The committed ledger at the comparison base (Dev tooling R13: the merge-base with `main`, or the pre-push tip on `main`) must be a byte prefix of the working ledger. A changed or removed ledger line is an ERROR. A base with no ledger yet (the first commit that adds it) passes. Without a git checkout or a resolvable base, this one check reports **NOT ASSESSED** by name (Dependencies) and every other check still runs.
+- **Authoring:** the uid helper fills empty `uid` cells using F4 and appends one ledger line per assignment, so authors never pick numbers by hand.
 
-**R7 — Content version.** At load, the loader computes the content hash F1 over the exact bytes of all 19 tables. How the hash is used:
+**R7 — Content version.** At load, the loader computes the content hash F1 over the exact bytes of every inventory table (R2). How the hash is used:
 - **Recorded:** the hash is kept with every save and every leaderboard submission, so Deterministic RNG's replay rule (R12) knows which content a run used.
 - **Matching in the reference core:** the Python reference and the engine port must produce the same hash from the same files.
 - **Mismatch handling:** what a mismatch means for an old save belongs to Local save and migration (6).
@@ -156,7 +165,7 @@ The loader has four states. There is no partial state: either every table is loa
 |---|---|---|
 | `Unloaded` | Process started, nothing read | No |
 | `Loading` | Reading files, converting types, building indexes, computing F1 | No |
-| `Ready` | All 19 tables loaded, structural checks passed, hash known | Yes, read-only |
+| `Ready` | Every inventory table (R2) loaded, structural checks passed, hash known | Yes, read-only |
 | `Failed` | A file is missing or unreadable, a value fails conversion, a key is duplicated, a reference is dangling, or a row is missing its `uid` | No |
 
 | From | To | Trigger |
@@ -198,7 +207,7 @@ The content_hash formula is defined as:
 **Variables:**
 | Variable | Type | Range | Source | Description |
 |----------|------|-------|--------|-------------|
-| P | set of paths | 19 paths today | constant (R2 inventory) | Repo-relative paths with `/` separators, e.g. `data/items.csv`. Sorted by byte value |
+| P | set of paths | one per R2 inventory table (19 today) | constant (R2 inventory) | Repo-relative paths with `/` separators, e.g. `data/items.csv`. Sorted by byte value. The `uid` ledger (R6) is not in P |
 | utf8(f) | bytes | 1–64 bytes | calculated | The path string encoded as UTF-8 |
 | len(norm(f)) | u64 | 0 – 2⁶⁴−1 | calculated | Length of the normalised file, little-endian, so a byte cannot slide from one file into the next |
 | norm(f) | bytes | any | data file | File contents after BOM strip and newline normalisation |
@@ -248,17 +257,17 @@ The ref_ok formula is defined as, for every reference from row `a` to row `b` (a
 
 The next_uid formula is defined as:
 
-`next_uid = 1 + max({0} ∪ { uid(r) : r in any content table, at HEAD or in the working copy })`
+`next_uid = 1 + max({0} ∪ { L.uid : L a line of the uid ledger (R6) })`
 
 **Variables:**
 | Variable | Type | Range | Source | Description |
 |----------|------|-------|--------|-------------|
-| uid(r) | u32 | 1 – 2³²−1 | data file (`uid` column of every content table) | The `uid` already assigned to each row. 0 (`content_id_none`) means "none" and is never assigned |
+| L.uid | u32 | 1 – 2³²−1 | data file (`data/meta/uid_ledger.csv`, R6) | Every `uid` ever assigned, including those of rows since deleted. 0 (`content_id_none`) means "none" and is never assigned |
 | next_uid | u32 | 1 – 2³²−1 | calculated | The `uid` given to the next new row |
 
-**Output range:** 1 when no row has a `uid` yet, and otherwise one above the current maximum. The maximum is taken over both `HEAD` and the working copy, so a `uid` freed by deleting a row before launch is never handed out again. The u32 ceiling (4,294,967,295) is unreachable in practice: there are 2,431 content-table rows today. Reaching the ceiling is still a validator ERROR, not a wrap-around.
+**Output range:** 1 when the ledger is empty, and otherwise one above the highest `uid` ever assigned. The maximum is taken over the ledger, not over the tables, so deleting the highest-`uid` row and committing does not lower it: a freed `uid` is never handed out again, whatever the git history. The ledger is append-only and checked against the comparison base (R6), so the maximum can never go down in a merged change. The u32 ceiling (4,294,967,295) is unreachable in practice: there are 2,431 content-table rows today. Reaching it is still a validator ERROR, not a wrap-around.
 
-**Example:** the first run of the helper on today's content assigns 1, 2, 3 … in R2 table-inventory order, then file order within each table. A later patch adding three items assigns the next three numbers, and every earlier `uid` stays as it was.
+**Example:** the first run of the helper on today's content finds an empty ledger and assigns 1 … 2,431 in R2 table-inventory order, then file order within each table, appending 2,431 ledger lines. A later patch deletes the row holding `uid` 2,431 and adds three items: `next_uid` is still 2,432, the items get 2,432, 2,433 and 2,434, and 2,431 stays reserved in the ledger (a `removed row` WARN before launch).
 
 ## Edge Cases
 
@@ -283,9 +292,16 @@ The next_uid formula is defined as:
 - **If an ID breaks the format rule** (uppercase, a space, a hyphen, a diacritic, more than 48 characters): ERROR. Diacritics belong in `i18n`, never in IDs.
 - **If the same ID appears in two tables**: ERROR (R3 global uniqueness), even though each table on its own is clean.
 - **If a row has an empty `uid` cell**: ERROR with the hint "run the uid helper". The loader goes to `Failed`.
-- **If a (row key, `uid`) pair at `HEAD` no longer exists because the row was deleted**: WARN (`removed row`) before launch, because IDs are renamed often before the first public build. The `uid` stays reserved (F4). After launch, deleting a shipped row breaks R3, and OQ-2 asks for the ship marker that turns this into an ERROR.
-- **If two branches each add rows and their merge gives two rows the same `uid`**: ERROR (duplicate `uid`). The fix is to re-run the helper on the merged files. It keeps every `uid` already on `HEAD` and renumbers only the new rows, so nothing that has shipped moves.
-- **If someone changes the `uid` of an existing row**: ERROR, found by comparing against git `HEAD` (R6). There is no override flag. A wrong `uid` on content that has not shipped is fixed by retiring the row and adding a new one.
+- **If a ledger line's row no longer exists because the row was deleted**: WARN (`removed row`) before launch, because IDs are renamed often before the first public build. The `uid` stays reserved in the ledger (F4). After launch, deleting a shipped row breaks R3, and OQ-2 asks for the ship marker that turns this into an ERROR.
+- **If two branches each add rows and their merge gives two rows the same `uid`** (or two ledger lines with one `uid`): ERROR (duplicate `uid`). The fix is to re-run the helper on the merged files. It keeps every ledger line already present at the comparison base (R6), drops the conflicting new lines, and renumbers only the rows that were new on either branch, so nothing that has merged moves.
+- **If someone changes the `uid` of an existing row**: ERROR, because the row no longer matches its ledger line (R6). This holds after the change is committed, because the ledger, not `HEAD`, is the reference. **If someone also edits or deletes the ledger line to match**: ERROR, because the working ledger is no longer an extension of the base ledger (R6, history check). There is no override flag. A wrong `uid` on content that has not shipped is fixed by retiring the row and adding a new one.
+- **If a `drop_tables` row's `uid` changes, or two rows of one group swap `uid`s**: ERROR, like any other row. Each drop row is identified by (`table_id`, `ref`) (R2), so a changed `uid` inside a group is a mismatch, not a delete plus an add. Changing a drop row's `ref` is a delete plus an add: the old line is a `removed row` and the new row gets a fresh `uid`.
+- **If the ledger file is missing while tables hold `uid`s**: ERROR (every row has a `uid` the ledger does not hold). The helper never rebuilds a ledger from the tables, because that would launder a changed `uid`.
+
+**Parameter keys**
+
+- **If `config.csv` or `sim_params.csv` holds a key the per-key schema does not declare, or lacks a declared key**: ERROR (`unknown key` / `missing key`) naming the file and key (R4). A key approved in a GDD but not yet built is absent from both the schema and the CSV, which is consistent.
+- **If a parameter value does not convert to its key's type** (`party_max = 5.5` for an `int` key, `true` for a `float` key, a list key with an element of the wrong type): ERROR naming the key, the same as for a column.
 - **If a `ppm` cell is outside 0 … 1,000,000, or is not an integer** (`0.55`, `55%`): ERROR. It is never clamped or converted, matching RNG F6, which treats an out-of-range `chance_ppm` as an error.
 
 **Waves and liveness**
@@ -310,9 +326,9 @@ The next_uid formula is defined as:
 | System (#) | Hard / soft | Interface |
 |---|---|---|
 | Localization (4) | Soft, validator only | The validator reads `i18n/names_*.csv` to check name coverage (R9). The loader never reads i18n. With no i18n files, the name check fails and every other check still runs |
-| Git (tooling, not a game system) | Hard, validator only | R6 compares every table's (row key, `uid`) pairs against `HEAD`. Outside a git checkout this check reports **NOT ASSESSED** by name and the run cannot pass. It is never silently skipped |
+| Git (tooling, not a game system) | Hard, validator only | R6's history check compares the `uid` ledger with the ledger at the comparison base that Dev tooling (43) R13 resolves. Outside a git checkout, or with no resolvable base, that one check reports **NOT ASSESSED** by name and the run cannot pass. It is never silently skipped. Every other check, including rows against the ledger, needs no git |
 
-**Downstream (systems that depend on this one).** None of these has a GDD yet, apart from Deterministic RNG. Each must list this system in its own Dependencies section, name the tables it reads, and state what its rows mean.
+**Downstream (systems that depend on this one).** Every system below has a GDD (re-verified 2026-11-16). Each lists this system in its own Dependencies section, names the tables or keys it reads, and states what its rows mean. Systems that read only `config`/`sim_params` keys are listed with their keys' owner role.
 
 | System (#) | Hard / soft | Interface | Tables / outputs |
 |---|---|---|---|
@@ -334,12 +350,25 @@ The next_uid formula is defined as:
 | Crafting and recipes (28) | Hard | Recipes | `recipes` |
 | Guild and buildings (30) | Hard | Building meta and per-level rows | `building_meta`, `buildings` |
 | Leaderboards and anti-cheat (35) | Hard | Server replay uses the content matching the submission's F1 | F1 |
-| Dev tooling and parity harness (43) | Hard | Balance simulator, calibrator and parity harness use the same loader and schema; the validator is part of this system's pipeline and runs in CI | all |
+| Dev tooling and parity harness (43) | Hard | Balance simulator, calibrator and parity harness use the same loader and schema; the validator is part of this system's pipeline and runs in CI; R13 resolves the comparison base for the ledger history check (R6) | all, `uid` ledger |
+| Command layer (5) | Hard | Command arguments of type `content(<table>)` resolve by ID or `uid`; its config keys | any content table, `config` |
+| Utility AI (12) | Hard | Weights and thresholds | `config` |
+| Recruitment (15) | Hard | Candidate generation reads schools, traits and its config keys; liveness for offered schools | `schools`, `traits`, `config` |
+| Retention, leaving and negotiation (16) | Hard | Its config keys | `config` |
+| Jianghu free agents and NPC guilds (17) | Hard | NPC guild definitions (approved addition) and its config keys | `npc_guilds` (when built), `config` |
+| Arena (18), Endless Tower (19) | Hard | Their `sim_params` keys | `sim_params`, `monsters` |
+| Gold economy (27) | Hard | Prices, tax and upkeep parameters | `items`, `buildings`, `config` |
+| Offline progress (31) | Hard | Offline cap and resolver parameters | `config`, `sim_params` |
+| Entitlement and feature flags (32) | Hard | Feature flags (approved addition) | `feature_flags` (when built) |
+| Ads (33), In-app purchases (34) | Hard | Product catalogue (approved addition) and their config keys | `iap_products` (when built), `config` |
+| Guild screens (39) | Soft | Display-side config keys | `config` |
+| Event bus and history log (42) | Hard | History-log limits | `config` |
+| Onboarding (44), Analytics (37), Settings (45), Local push (46) | Soft | Approved host-side tables and keys | `onboarding_steps`, `analytics_events` (when built), `config` |
 | Every system that offers content to the player | Hard | Uses the F2 liveness query, never `wave` directly (R5) | — |
 
 "Hard" means the dependent system cannot run without this one. The systems not listed (UI, audio, ads, analytics and so on) reach content only through the systems above.
 
-**Consistency note for the systems index.** The index lists the Data layer as a dependency of systems 1, 20, 21, 22, 26, 30 and 43 only. Systems 6, 8, 9, 10, 11, 14, 23, 24, 25, 28 and 35 also read its tables or its outputs (table above), but their index rows do not say so. Phase 5 proposes adding it, so the dependency is recorded in both directions. Deterministic RNG's GDD names "a fixed table" in R5 without naming its owner. Its Cross-References should point here.
+**Consistency note for the systems index.** Re-verified 2026-11-16: the index rows of systems 1, 5, 6, 8–12, 14–16, 20–28, 30, 32–35, 39, 42 and 43 list the Data layer. Systems 17, 18, 19, 31, 37, 44, 45 and 46 read only approved keys or tables that are not built yet; their index rows can add the Data layer when those land. Deterministic RNG's Cross-References point here (R5 `uid`, F5, F6).
 
 ## Tuning Knobs
 
@@ -347,7 +376,7 @@ This system owns one knob. The hundreds of gameplay numbers stored in its tables
 
 | Knob | Where | Safe range | Too low | Too high | Interacts with |
 |---|---|---|---|---|---|
-| `live_wave` (W_live, F2) | `config.csv` | 1 – W_max (3 today) | 0 or below: nothing is live and the validator rejects it | Above W_max: the validator rejects it as a config/content mismatch | Every row's `wave` column. Raising it releases a whole wave at once (Player Fantasy 3). Lowering it in a shipped build is unsupported (OQ-3). It is part of F1, so changing it changes the content hash and every leaderboard bucket keyed by that hash |
+| `live_wave` (W_live, F2) | `config.csv` | 1 – W_max (3 today) | 0 or below: nothing is live and the validator rejects it | Above W_max: the validator rejects it as a config/content mismatch | Every row's `wave` column. Raising it releases a whole wave at once (Player Fantasy 3). Lowering it in a shipped build is unsupported (OQ-3). It is part of F1, so changing it changes the content hash. Leaderboards are not split by content hash: each ranked segment replays with its own content (Leaderboards R7.3) |
 
 **Not knobs (constants by design):**
 - The ID format and the 48-character limit (R3). Widening the limit is backwards-compatible. Narrowing it would invalidate shipped IDs.

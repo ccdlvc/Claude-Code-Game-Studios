@@ -1,6 +1,6 @@
 # Ads (banner, rewarded, consent)
 
-> **Status**: Designed (pending independent /design-review)
+> **Status**: Designed (revised 2026-11-16 for design-review blocking items; pending re-review)
 > **Author**: user + Claude (autonomous batch run, decisions logged in `production/session-logs/decision-log.md`)
 > **Last Updated**: 2026-11-16
 > **Last Verified**: 2026-11-16
@@ -44,11 +44,11 @@ Three supporting promises the rules must keep:
 
 ### Core Rules
 
-**R1 — Outside the simulation; no interrupting formats.** Ads is a host-level service. It holds no simulation state, registers no tick phase, emits no Event-bus events, and is never called from inside a tick. It may use engine time and engine randomness. It uses exactly two ad formats: an **anchored adaptive banner** and a **rewarded video**. Interstitial, app-open, rewarded-interstitial, native-in-feed and auto-playing formats are forbidden (GDD §11.2); mediation adapters must be configured so none of them is ever requested.
+**R1 — Outside the simulation, except one save section; no interrupting formats.** Ads is a host-level service. It registers no tick phase, emits no Event-bus events, and is never called from inside a tick. Its only simulation state is the small `ads` save section that the 3301 applier (R9) reads and writes: registered with `register_section("ads", "ads", serialize, restore)` (Local save R6) and holding `ad_watches_applied` (entries `{watch_id, quest_uid, period_index}`), `credit_day` (the Quests game day of the last accepted credit) and `credits_today` (accepted credits on that day). Everything else Ads holds (consent, banner, rewarded objects, the pending-watch side file) is host state and never enters the save. It may use engine time and engine randomness. It uses exactly two ad formats: an **anchored adaptive banner** and a **rewarded video**. Interstitial, app-open, rewarded-interstitial, native-in-feed and auto-playing formats are forbidden (GDD §11.2); mediation adapters must be configured so none of them is ever requested.
 
 **R2 — The ads-allowed gate.** An ad may be requested, loaded or shown only when all of these hold; otherwise every banner and rewarded object is destroyed and nothing is requested:
 - (a) the build is a mobile store build (Android in Wave 1; iOS later). The PC/Steam build and the Web build contain no ad SDK at all (GDD §2 "PC chỉ bản trả phí, không quảng cáo"; Web is OQ-7);
-- (b) Entitlement (32) reports a **definite** `is_premium = false`. While Entitlement is not yet ready (first seconds of launch, cache missing and not yet refreshed) the gate is **closed** — Ads fails closed, so a paying player never sees an ad because a check was slow (P5 prompt "Premium không bao giờ thấy quảng cáo");
+- (b) Entitlement (32) gives a **definite Free**: the guild is loaded and the core has completed at least one tick (Entitlement R7 runs its boot derivation and submits `set_entitlement` before the first tick, so from then on the sim view holds the derived value), **and** `feature_on(no_ads)` read from Entitlement's sim view (Entitlement R1, F3) is false. Before that moment (title, privacy notice and consent screens, the load itself) the gate is **closed** — Ads fails closed, so a paying player never sees an ad because a check was slow (P5 prompt "Premium không bao giờ thấy quảng cáo"). Changes are observed through Entitlement's event 3201 `entitlement_changed` in the facade's tick batch; Ads never reads IAP or the Entitlement service directly;
 - (c) the consent flow has reached `ConsentResolved` and the consent SDK reports that ads may be requested (R4);
 - (d) the ad SDK has initialised.
 The gate is re-evaluated on every Entitlement change, consent change and app resume. A change to Premium mid-session closes it immediately (R7, Edge Cases).
@@ -60,12 +60,12 @@ The gate is re-evaluated on every Entitlement change, consent change and app res
 2. If the player accepts, ads are personalised as the consent allows; if the player declines or manages choices down, ads are requested in the SDK's non-personalised / limited mode. **Declining never blocks any game feature**, including the ad quests (the player may still watch a limited ad).
 3. If consent is **not required**, no form is shown.
 4. If the consent information cannot be fetched (no network), the state stays `ConsentUnknown`, the gate stays closed, and the refresh is retried on the next app resume with network. The game is fully playable meanwhile.
-5. When the SDK reports that a privacy-options entry point is required, Settings (45) shows *Privacy & ads → Change ad choices*, which reopens the consent form. It is shown to every Free player either way, labelled "Ad privacy settings".
+5. Ads publishes `privacy_options_required: bool` (true when the consent SDK reports that a privacy-options entry point is required for this user) and `open_privacy_options()`, which reopens the consent form. Settings (45) R13 shows *Privacy & ads → Ad privacy settings* only while `privacy_options_required` is true; elsewhere the SDK has no form to reopen. The privacy notice (R3) and the privacy policy link are shown on every build.
 6. Consent is device/install state kept in platform settings by the consent SDK, **never in the save** (Local save GDD: "ad consent … live in platform settings, not in the save"), so a restored cloud save never carries another device's consent.
 
 **R5 — iOS tracking prompt and age.** On iOS (post Wave 1, OQ-6) the App Tracking Transparency prompt is shown once, after the UMP step, and only if the build requests IDFA; a refusal means non-personalised ads. The game is **not child-directed**: store age rating and ad requests declare it as a general-audience title (no child-directed or under-age-of-consent tag). If the store rating or target audience ever includes children, R1 formats and networks must be re-reviewed (OQ-5).
 
-**R6 — The banner band.** In the Free mobile build every screen lays out above a bottom **banner band** whose height is fixed at startup: the ad SDK's anchored adaptive banner height for the current screen width in dp, or `ad_banner_fallback_dp` when the SDK cannot report one. The band is reserved whether or not an ad has filled, so nothing jumps when one loads. When the gate (R2) is closed because the player is Premium, or on PC/Web, the band height is 0 and the layout uses the full screen. The band sits above the system navigation area and inside safe-area insets (edge-to-edge Android, Godot 4.7 — `current-best-practices.md`).
+**R6 — The banner band (single owner).** Ads is the only owner of the band. In the Free mobile build every screen lays out above a bottom **banner band** whose height is fixed at startup: `band_dp` = the ad SDK's anchored adaptive banner height for the current screen width, or `ad_banner_fallback_dp` when the SDK cannot report one. Ads publishes it to the layout in the UI's logical pixels as `banner_band_px()` (F4), plus a `banner_band_changed(px)` host signal. The band is reserved whether or not an ad has filled, so nothing jumps when one loads. It is 0 when Entitlement reports Premium (`feature_on(no_ads)` true) and on PC/Web; it is recomputed only at startup, on a Premium change and on a screen-width change (rotation, resize). In a build that does not yet contain the Ads service (MVP, Vertical Slice), the shell reserves F4 with `band_dp = ad_banner_fallback_dp` on the Free mobile layout, so every screen is laid out with the band from day one (GDD §11.3). Guild screens (39) and Settings (45) read the height; neither defines its own. The band sits below the tab bar, above the system navigation area and inside safe-area insets (edge-to-edge Android, Godot 4.7 — `current-best-practices.md`).
 
 **R7 — Banner behaviour.**
 - One banner instance, loaded when the gate opens, refreshed by the ad network at the rate set in the network console (not by game code).
@@ -81,22 +81,22 @@ The gate is re-evaluated on every Entitlement change, consent change and app res
 5. The simulation keeps running while the video plays; the host `advance` call continues on resume, and a long video follows the normal resume path of the Sim core (and, beyond `offline_threshold_s`, Offline progress 31). The video never pauses the guild.
 6. After the watch, the next ad is preloaded if the quest still needs watches.
 
-A Premium player never sees *Watch ad*: Quests (25) claims these quests for them through `premium_auto_claim = true` using Entitlement's sim snapshot. Ads plays no part in that path.
+A Premium player never sees *Watch ad*: Quests (25) R5 makes these slots claimable without progress (the player taps *Claim*) through `premium_auto_claim = true` and `feature_on(ad_quest_direct_claim)`. Ads plays no part in that path.
 
 **R9 — Crediting a watch: `credit_ad_watch` (host command 3301).** On the earned-reward callback, Ads:
 1. Creates a watch record `{watch_id, quest_id, period_index}` (`watch_id` a random 62-bit host id) and writes it atomically to a small **pending-watch side file** beside the save, not inside it.
 2. Submits host-origin command `credit_ad_watch(quest_id, watch_id)` through the Command layer host facade.
-3. Its applier (owned by this system, executing Quests' objective API) checks: the quest is an `ad_variant` quest with objective `watch_rewarded_ad`; the current open instance of that quest has `progress < count`; `watch_id` is not in the save's `ad_watches_applied` set; the per-day credit count is below `ad_rewarded_daily_max` (F2). If all hold, it adds 1 to the quest's objective progress, adds `watch_id` to `ad_watches_applied`, and returns accepted. Reward payout on completion is Quests' (25) normal completion path.
-4. Refusals: `101 not_ad_quest`, `102 quest_satisfied` (instance complete or no open instance), `103 duplicate_watch`, `104 daily_cap`. A refusal changes nothing.
-5. The side-file record is removed once a save that contains the accepted `watch_id` has been written; on launch, any record still in the file is re-submitted (idempotent through 103).
+3. Its applier (owned by this system) reads the `ads` section (R1) and Quests' current game day `cur_day` (Quests R2.3, F4), and checks in this order: `watch_id` is not in `ad_watches_applied` (else `103`); the day count is below the cap — `credits_today` if `credit_day = cur_day`, else 0 — compared with `ad_rewarded_daily_max` (F2; else `104`); then it calls Quests' in-sim `add_ad_progress(quest_uid)` (Quests R5), which checks that the current open instance is an ad slot with `progress < target` and adds 1. Results map to: `ok` → accepted; `not_ad_quest` → refusal `101`; `satisfied` → refusal `102`. On `ok` the applier adds `{watch_id, quest_uid, period_index}` to `ad_watches_applied`, sets `credit_day = cur_day`, and sets `credits_today` to the day count + 1. Reward payout on completion is Quests' (25) normal completion path.
+4. Refusals: `101 not_ad_quest`, `102 quest_satisfied` (instance complete, Premium slot, or no open instance), `103 duplicate_watch`, `104 daily_cap`. A refusal changes nothing (Quests changes nothing on a non-`ok` result).
+5. The side-file record is removed once a save that contains the accepted `watch_id` has been written; on launch, any record still in the file is re-submitted (idempotent through 103). A record whose `period_index` is older than the previous period of its quest is dropped without submitting (after pruning its `watch_id` could no longer be detected as a duplicate).
 
-The command uses the **current** open instance of `quest_id`, not the instance that was open when the video started, so a watch that straddles a daily reset counts toward the new day's quest (Edge Cases). `ad_watches_applied` is pruned to the watch ids of the current and previous period of each ad quest.
+The command uses the **current** open instance of `quest_id`, not the instance that was open when the video started, so a watch that straddles a daily reset counts toward the new day's quest (Edge Cases). `ad_watches_applied` is pruned to entries whose `period_index` is the current or previous period of their quest. The day cap is keyed to Quests' game day, a logged sim quantity (Quests R2.5), not to the device's calendar, so a replay reproduces every refusal.
 
 **R10 — Declining, skipping and no-fill.** Closing the video before the earned callback grants nothing and costs nothing; the quest stays open and the button returns. No-fill, SDK errors and offline state show "No ad available right now — try again later" and retry the load with F1 back-off while the quest is open and the app is in the foreground. There is **no fallback grant** in this GDD (OQ-3). Nothing in the game nags: no pop-up suggests watching, and the quest list is the only entry point.
 
 **R11 — Ad content and placement rules (data, network console).** Ad unit ids live in data, not code (`ad_unit_banner_android`, `ad_unit_rewarded_android`). Debug and internal-test builds use the network's test unit ids and test-device registration and never request live ads. Sensitive ad categories that conflict with a general-audience fantasy game (gambling, dating, political) are blocked in the network console; the list is maintained by the user, not by code (OQ-8).
 
-**R12 — Host signals.** Ads emits host signals (not Event-bus events) for Analytics (37) and the UI: `consent_state_changed(state, personalised)`, `banner_state_changed(state)`, `rewarded_state_changed(state)`, `ad_watch_credited(quest_id, watch_id)`, `ad_watch_refused(quest_id, reason)`. Analytics must only forward them under its own consent rules (OQ-4).
+**R12 — Host signals.** Ads emits host signals (not Event-bus events) for Analytics (37) and the UI: `consent_state_changed(state, personalised)`, `banner_state_changed(state)`, `rewarded_state_changed(state)`, `ad_watch_credited(quest_id, watch_id)`, `ad_watch_refused(quest_id, reason)`, and `banner_band_changed(px)` (R6). `rewarded_state_changed` carries the Rewarded states of the table below (`Idle`, `Loading`, `Retrying`, `Ready`, `Showing`, `Earned`); Audio (40) R9 mutes game audio on entering `Showing` and restores it on leaving `Showing`. Analytics must only forward them under its own consent rules (Analytics R2).
 
 ### States and Transitions
 
@@ -139,18 +139,18 @@ On PC/Web builds the machine stops at `NoticePending → ConsentResolved` with a
 
 | System | Direction | Data / call | Owner of the interface |
 |---|---|---|---|
-| Entitlement and feature flags (32) | Upstream, hard | Reads `is_premium` and a `ready` flag; listens for changes. Never reads IAP directly (IAP Interactions row "Ads (33)"). | Entitlement. **PROVISIONAL** — GDD not written. |
-| Quests and achievements (25) | Upstream/sideways, hard | Reads open ad-variant quest instances (`quest_id`, `period_index`, `progress`, `count`, reward preview); the 3301 applier calls Quests' objective-progress API; Quests owns rewards, resets and `premium_auto_claim`. | Quests. **PROVISIONAL** — GDD not written. |
+| Entitlement and feature flags (32) | Upstream, hard | Reads `feature_on(no_ads)` from the sim view once the guild is loaded and has ticked (R2b); watches event 3201 `entitlement_changed`. Never reads IAP or the Entitlement service directly (IAP Interactions row "Ads (33)"; Entitlement R1). | Entitlement (`entitlement-and-feature-flags.md` R1, R3, R8 row `no_ads`, F3). |
+| Quests and achievements (25) | Upstream/sideways, hard | Reads open ad-variant quest instances (`quest_id`, `period_index`, `progress`, target, reward preview) and `cur_day`; the 3301 applier calls `add_ad_progress(quest_uid) → ok \| not_ad_quest \| satisfied` (Quests R5); Quests owns rewards, resets and the Premium direct claim. | Quests (`quests-and-achievements.md` R2, R5, F4). |
 | Command layer (5) | Upstream, hard | Registers host-only command `credit_ad_watch` (3301) in block 3300, args `content(quests)`, `int(1, 2^62−1)`; reason codes 101–104. | Command layer owns the envelope; this system owns the type (id confirmed, consistency-check 2026-11-16). |
-| Local save and migration (6) | Upstream, hard | New sim-state field `ad_watches_applied` (set of watch ids, pruned); pending-watch side file beside the save, written atomically. | Local save owns the format. **PROVISIONAL**. |
+| Local save and migration (6) | Upstream, hard | Registers the `ads` section (R1: `ad_watches_applied`, `credit_day`, `credits_today`) through `register_section` (Local save R6); pending-watch side file beside the save, written atomically. | Local save owns the contract; this system owns the section. |
 | Account and cloud save (7) | Sideways, soft | Its first-launch privacy-notice requirement is met by R3. Consent is not synced. | This system owns the notice. |
 | In-app purchases (34) | Sideways, soft | Banner hidden while the store sheet / shop confirmation is open; Premium purchase reaches Ads only through Entitlement. | IAP for the sheet signal. |
-| Settings (45) | Downstream, hard | Hosts *Privacy & ads*: reopen privacy notice, *Change ad choices* (R4.5), privacy policy link. | Settings owns the screen; this system owns the actions. |
-| Guild screens (39), Realtime world view (38) | Downstream, hard | Every screen lays out above the banner band (R6); quest list shows the *Watch ad* row states (R8). | Screens own layout; this system owns band height and button state. |
-| Onboarding and tutorial (44) | Upstream, soft | May mark steps `suppress_banner` (R7). | Onboarding. **PROVISIONAL**. |
-| Audio (40) | Downstream, soft | Mutes game audio during a rewarded video. | Audio. **PROVISIONAL**. |
+| Settings (45) | Downstream, hard | Hosts *Privacy & ads* (Settings R13): *Privacy notice* (reopens R3), *Ad privacy settings* while `privacy_options_required` (calls `open_privacy_options()`, R4.5), privacy policy link (`ad_privacy_policy_url`), iOS ATT status; leaves room for `banner_band_px()` (R6). | Settings owns the screen; this system owns the actions and flags. |
+| Guild screens (39), Realtime world view (38) | Downstream, hard | The shell reads `banner_band_px()` / `banner_band_changed` and lays every screen out above the band (R6, Guild screens R2); the quest board (G21) shows the *Watch ad* row states (R8). | Screens own layout; this system owns band height and button state. |
+| Onboarding and tutorial (44) | Upstream, soft | May mark rows `suppress_banner` (R7; 0 on every Wave 1 row, Onboarding R1); its coach cards dock above the band. | Onboarding. |
+| Audio (40) | Downstream, soft | Mutes game audio while `rewarded_state_changed` is `Showing` (R12, Audio R9). | Audio. |
 | Localization (4) | Upstream, hard | Notice, button and error strings in vi/en. The UMP form is localised by the SDK. | Localization. |
-| Analytics (37) | Downstream, soft | Subscribes to R12 host signals. | Analytics. **PROVISIONAL**. |
+| Analytics (37) | Downstream, soft | Subscribes to R12 host signals under its own opt-in (Analytics R2). | Analytics. |
 | Leaderboards and anti-cheat (35) | Downstream, soft | Sees `credit_ad_watch` in the command log; credits are bounded by quest counts and F2, so a forged command gains nothing a real watch does not. | Leaderboards. |
 | Data layer (3) | Upstream, hard | Reads `data/quests.csv` (`ad_variant`, `objective`, counts) and the new config keys (OQ-2). | Data layer. |
 
@@ -185,7 +185,7 @@ The rewarded_watches_max formula is defined as:
 |----------|------|-------|--------|-------------|
 | L | int | 1–guild level cap | calculated (Guild and buildings 30) | Current guild level |
 | count_base, count_per_guild_lv, min_guild_lv, period, ad_variant | int / bool | per `quests.csv` | data file (`data/quests.csv`, exists) | Quest objective count and gating |
-| ad_rewarded_daily_max | int | 1–10 (5) | data file (`config.csv`, key to add) | Safety cap on credits per local calendar day, enforced by the 3301 applier |
+| ad_rewarded_daily_max | int | 1–10 (5) | data file (`config.csv`, key to add) | Safety cap on credits per Quests game day (`cur_day`, Quests F4), enforced by the 3301 applier from the `ads` section (R9) |
 
 **Output Range:** with today's data `W_daily = 1`, `W_weekly = 3` for every L, so at most 4 credits in one day and 10 in a week (1 × 7 + 3). The cap 5 never binds at current data; it exists so a content edit (for example a non-zero `count_per_guild_lv`) cannot turn the quest list into an ad wall. Content validator: **error** if `W_daily(L) + W_weekly(L) > ad_rewarded_daily_max` for any L up to the level cap.
 **Example:** guild level 4, fresh week: the player can watch 1 (daily) + 3 (weekly) = 4 ads today; a 5th tap is impossible because no quest needs a watch.
@@ -206,12 +206,30 @@ The ad_reward_share formula is defined as:
 **Output Range:** 0 to 1. At current data: daily gold 900 / 3,370 = **0.267** at L = 1, tending to 300/1,120 = 0.268 as L grows; daily Linh Bảo 10 / 41 = 0.244; weekly gold 3,000 / 12,000 = 0.25 at L = 1, 4,000 / 22,000 = 0.18 at L = 2 (the backlog-boss quest unlocks). So a Free player who never watches forgoes about a quarter of quest gold and Linh Bảo — the same amount a Premium player gets by auto-claim and a Free player gets by watching. Below the 0.30 warning, but large enough that "optional" deserves an economy check (OQ-1).
 **Example:** L = 10 daily: ad quest pays 600 + 300 × 10 = 3,600 gold; all six daily quests pay 2,250 + 1,120 × 10 = 13,450; share = 0.268.
 
+### F4 — `banner_band_px` (band height in layout pixels)
+
+The banner_band_px formula is defined as:
+
+`banner_band_px = 0` if Premium (`feature_on(no_ads)`) or PC/Web; otherwise `banner_band_px = ceil(band_dp × viewport_w_px / screen_w_dp)`, with `band_dp = sdk_adaptive_dp` if the SDK reports one, else `ad_banner_fallback_dp`.
+
+**Variables:**
+| Variable | Type | Range | Source | Description |
+|----------|------|-------|--------|-------------|
+| sdk_adaptive_dp | int | 50–90 typical (SDK-defined) | calculated (ad SDK, anchored adaptive size for `screen_w_dp`) | Banner height the SDK will use |
+| ad_banner_fallback_dp | int | 50–90 (50) | data file (`config.csv`, key to add) | Height used when the SDK reports none, or in a build without the Ads service |
+| screen_w_dp | float | > 0 | calculated (platform display metrics) | Screen width in density-independent pixels |
+| viewport_w_px | int | > 0 | calculated (Godot stretched viewport width; 360 at the reference viewport) | Width in the UI's logical pixels, the unit Guild screens lays out in |
+| banner_band_px | int | 0, or ≥ 1 | calculated | Height of the band in logical px |
+
+**Output Range:** 0 for Premium/PC/Web; otherwise at least `band_dp × viewport_w_px / screen_w_dp` rounded **up**, so the band is never smaller than the ad (an adaptive banner can never overlap the tab bar). `screen_w_dp = 0` cannot occur on a real display; a reported 0 is treated as `viewport_w_px` (ratio 1).
+**Example:** SDK reports 56 dp on a 360 dp-wide phone with a 360-px viewport → 56 px. Same banner on a 411 dp-wide phone whose viewport is 360 px wide → `ceil(56 × 360 / 411) = ceil(49.05) = 50` px. No SDK size, 360/360 → `ad_banner_fallback_dp` = 50 px.
+
 ## Edge Cases
 
-- **If Premium is bought while a rewarded video is playing**: the video finishes; an earned callback is still credited (the player watched it); then the gate closes, all ad objects are destroyed and the *Watch ad* rows disappear as Quests auto-claims. No watch is lost or double-paid (102 refuses a credit to an already auto-claimed quest).
+- **If Premium is bought while a rewarded video is playing**: the video finishes; the earned callback is submitted, but once `set_entitlement` has applied, Quests returns `satisfied` for the Premium slot and the credit is refused 102; the player collects the same reward by Premium's direct *Claim* (Quests R5). The gate closes, all ad objects are destroyed and the *Watch ad* rows disappear. No reward is lost or double-paid.
 - **If Premium is bought while the banner shows**: banner destroyed at once, band collapses to 0 on the next layout pass; no app restart needed.
 - **If Premium is refunded (Entitlement → Free)**: no ad appears mid-session; the gate opens on the next app start. Rationale: an ad appearing the instant a refund lands looks like punishment and races Entitlement refreshes.
-- **If Entitlement is not ready within the first seconds of launch**: gate stays closed; the band is reserved (Free layout assumed for a fresh install with no cache) and empty. If Entitlement then reports Premium, the band collapses once.
+- **Before the guild is loaded and has ticked** (title, privacy notice, consent, load): gate stays closed (R2b); the band is reserved (Free layout assumed) and empty. If the first tick's view reports Premium, the band collapses once (`banner_band_changed(0)`).
 - **If the earned callback fires twice for one video** (SDK retry): the second creates a new `watch_id`, so it would be credited — guarded because Ads ignores any earned callback while `rewarded_state` is already `Earned` for the current show.
 - **If the app is killed after the earned callback but before the save**: the pending-watch side file holds the record; on relaunch it is re-submitted and credited once (R9.5, 103 for repeats).
 - **If a video straddles the daily or weekly reset**: the credit goes to the current open instance of the same quest (R9). If that instance is already satisfied, refused with 102 and the player sees "Today's ad quest is already done".
@@ -231,20 +249,20 @@ The ad_reward_share formula is defined as:
 
 | System | Kind | Interface |
 |---|---|---|
-| Entitlement and feature flags (32) | **Hard, upstream** | `is_premium`, `ready`, change signal. Gate R2(b). |
-| Quests and achievements (25) | **Hard, upstream** | Open ad-quest instances and reward preview; objective-progress API for the 3301 applier; `premium_auto_claim`. |
+| Entitlement and feature flags (32) | **Hard, upstream** | `feature_on(no_ads)` from the sim view; event 3201. Gate R2(b). |
+| Quests and achievements (25) | **Hard, upstream** | Open ad-quest instances and reward preview; `cur_day`; `add_ad_progress` for the 3301 applier; `premium_auto_claim`. |
 | Command layer (5) | **Hard, upstream** | Host submit path and registration of `credit_ad_watch` (3301). |
-| Local save and migration (6) | **Hard, upstream** | Persists `ad_watches_applied`; pending-watch side file. |
+| Local save and migration (6) | **Hard, upstream** | `register_section("ads", …)` for R1's section; pending-watch side file. |
 | Data layer (3) | **Hard, upstream** | `quests.csv`, config keys, ad unit ids. |
 | Localization (4) | **Hard, upstream** | All strings. |
-| Settings (45) | Hard, downstream (UI) | *Privacy & ads* entry. |
-| Guild screens (39), Realtime world view (38) | Hard, downstream (UI) | Banner band, *Watch ad* row. |
+| Settings (45) | Hard, downstream (UI) | *Privacy & ads* section (Settings R13); `privacy_options_required`, `open_privacy_options()`. |
+| Guild screens (39), Realtime world view (38) | Hard, downstream (UI) | `banner_band_px()` (R6, F4); *Watch ad* row. |
 | Account and cloud save (7) | Soft, sideways | Privacy notice covers cloud backup. |
 | In-app purchases (34) | Soft, sideways | Store-sheet suppression signal. |
 | Onboarding (44), Audio (40) | Soft, upstream/downstream | `suppress_banner`; mute during video. |
 | Analytics (37), Leaderboards (35) | Soft, downstream | Host signals; command log. |
 
-Bidirectional check: the systems index lists 33 → Entitlement only. Quests, Command layer, Local save, Data layer and Localization are added because the reward path (R9) and the strings need them; the index row's Depends On is updated accordingly. Settings (45) already lists Ads as a dependency. Account and cloud save lists "Ads and consent (33)" as owner of the privacy notice — consistent. IAP lists Ads as reading Premium via Entitlement only — consistent. Entitlement, Quests, Guild screens, Onboarding, Audio and Analytics must add Ads when their GDDs are written (Open Questions).
+Bidirectional check (re-verified 2026-11-16; all GDDs exist): Settings R13 and Guild screens R2 read the band and privacy flags from this GDD; Quests R5 names the 3301 applier; Onboarding R1 has `suppress_banner`; Audio R9 mutes during the video; Analytics subscribes to R12; Account and cloud save names the privacy notice as owned here; IAP routes Premium through Entitlement only. Entitlement's downstream table still marks Ads "Not designed" and has no ready signal; that is Entitlement's revision (cross-cluster request), and R2(b) is written against its current R1/R7 text.
 
 ## Tuning Knobs
 
@@ -254,7 +272,7 @@ Bidirectional check: the systems index lists 33 → Entitlement only. Quests, Co
 | `ad_retry_max_s` | 300 | 60–1800 | Excess requests in low-fill regions | Ad stays unavailable long after fill returns | `config.csv` (to add) |
 | `ad_rewarded_daily_max` | 5 | 1–10 | Blocks legitimate quest watches (validator error if below F2's W) | Allows an ad wall if quest counts grow | `config.csv` (to add) |
 | `ad_reward_share_warn` | 0.30 | 0.1–0.5 | Warnings on every content change | Never warns about ad-heavy rewards | `config.csv` (to add) |
-| `ad_banner_fallback_dp` | 50 | 50–90 | Banner overlaps content if SDK size is larger | Wastes screen on small phones | `config.csv` (to add) |
+| `ad_banner_fallback_dp` | 50 | 50–90 | Band shorter than a large SDK banner only when the SDK reports no size | Wastes screen on small phones | `config.csv` (to add); the only band-height knob (Guild screens reads F4, has none of its own) |
 | `ad_unit_banner_android`, `ad_unit_rewarded_android` | test ids in debug | — | — | — | data (to add), never in code |
 | `ad_privacy_policy_url` | — | — | — | — | data (to add) |
 | Banner refresh rate, blocked ad categories, mediation | network console | network rules | — | — | Network console, not game data |
@@ -276,10 +294,10 @@ Quest counts and rewards (`quests.csv`) are Quests' (25) knobs; they feed F2 and
 
 ## UI Requirements
 
-- **Banner band** on every screen in the Free mobile build (R6), including modal dialogs that do not cover the full screen; full-screen modals (consent form, rewarded video, store sheet) hide it (R7). All layouts must fit Vietnamese strings above the band on a 1080×2400 screen.
+- **Banner band** on every screen in the Free mobile build (R6, height F4 published to Guild screens' shell), including modal dialogs that do not cover the full screen; full-screen modals (consent form, rewarded video, store sheet) hide it (R7). All layouts must fit Vietnamese strings above the band on a 1080×2400 screen.
 - **Privacy notice** (first launch, R3): title, 3–4 short bullet lines (cloud backup, guest account, ads, analytics), privacy-policy link, *Continue*. vi/en.
 - **Quest row** for ad quests: *Watch ad* with reward and count, states Loading / Ready / No ad available / Ads unavailable offline / Done; hidden for Premium (Quests shows the auto-claimed row).
-- **Settings → Privacy & ads** (Settings 45): *Ad privacy settings* (reopens the consent form), *Privacy notice*, *Privacy policy* link. Hidden on PC/Web except the notice and policy.
+- **Settings → Privacy & ads** (Settings 45 R13): *Ad privacy settings* (reopens the consent form; shown only while `privacy_options_required`), *Privacy notice*, *Privacy policy* link. On PC/Web only the notice and policy.
 - Accessibility: button states by text as well as colour; the banner band is not focusable; screen readers skip it.
 
 > **📌 UX Flag — Ads**: This system has UI requirements. In Phase 4 (Pre-Production), run `/ux-design` for the privacy notice, the quest-row ad states and the Settings privacy entry **before** writing epics.
@@ -300,13 +318,13 @@ Quest counts and rewards (`quests.csv`) are Quests' (25) knobs; they feed F2 and
 
 Story types: **[Logic]** automated unit test; **[Integration]** automated test against a fake ad SDK, fake consent SDK and fake Entitlement; **[UI]** retained screenshot in `production/qa/evidence/`; **[Device]** manual check on a real Android device in the P1 spike / pre-launch.
 
-- **AC-1 [Logic] (R2 gate, Premium)**: **GIVEN** fake Entitlement `ready = true, is_premium = true` and consent resolved, **WHEN** the app starts and runs 10 minutes with an open ad quest, **THEN** the fake ad SDK records zero load and zero show calls, band height = 0, and no *Watch ad* row exists.
-- **AC-2 [Logic] (R2 fail-closed)**: **GIVEN** Entitlement `ready = false`, **WHEN** 30 s pass, **THEN** zero ad requests are made; **WHEN** Entitlement becomes `ready, is_premium = false`, **THEN** the banner loads within one gate evaluation.
+- **AC-1 [Logic] (R2 gate, Premium)**: **GIVEN** a loaded, ticking guild whose Entitlement view has `feature_on(no_ads) = true` and consent resolved, **WHEN** the app starts and runs 10 minutes with an open ad quest, **THEN** the fake ad SDK records zero load and zero show calls, band height = 0, and no *Watch ad* row exists.
+- **AC-2 [Logic] (R2 fail-closed)**: **GIVEN** a Free install held on the title/consent screens with no guild loaded, **WHEN** 30 s pass, **THEN** zero ad requests are made; **WHEN** the guild loads, its first tick completes and the view has `feature_on(no_ads) = false`, **THEN** the banner loads within one gate evaluation.
 - **AC-3 [Logic] (R2 PC build)**: **GIVEN** the PC export preset, **WHEN** the build is inspected, **THEN** it contains no ad SDK library and the Ads service reports `disabled_platform`.
 - **AC-4 [Integration] (R3, R4 order)**: **GIVEN** a fresh install in a consent-required region (fake SDK), **WHEN** the app launches, **THEN** the privacy notice shows first, then the consent form, and the fake ad SDK receives no request before the form returns.
 - **AC-5 [Integration] (R4 decline)**: **GIVEN** the player declines in the consent form, **WHEN** an ad quest is open, **THEN** ads are requested in non-personalised mode and the *Watch ad* row still works; every non-ad feature is reachable.
 - **AC-6 [Integration] (R4.4 offline)**: **GIVEN** no network at first launch, **WHEN** the notice is acknowledged, **THEN** state = `ConsentUnknown`, zero ad requests, ad rows read "Ads unavailable offline"; **WHEN** the app resumes with network, **THEN** consent is checked again.
-- **AC-7 [Logic] (R6 band)**: **GIVEN** the Free build and a fake SDK that reports adaptive height 56 dp, **WHEN** the first screen lays out, **THEN** the band = 56 dp before any ad loads, and does not change when the ad fills; **GIVEN** the SDK reports no size, **THEN** band = `ad_banner_fallback_dp`.
+- **AC-7 [Logic] (R6, F4 band)**: **GIVEN** the Free build, a 360 dp-wide screen, a 360-px viewport and a fake SDK that reports adaptive height 56 dp, **WHEN** the first screen lays out, **THEN** `banner_band_px() = 56` before any ad loads and does not change when the ad fills; **GIVEN** a 411 dp-wide screen with the same viewport, **THEN** 50; **GIVEN** the SDK reports no size, **THEN** `ceil(ad_banner_fallback_dp × 360 / 360)` = 50; **GIVEN** Premium, **THEN** 0.
 - **AC-8 [Integration] (R7 Premium mid-session)**: **GIVEN** a banner showing, **WHEN** Entitlement changes to Premium, **THEN** the banner object is destroyed and the band is 0 on the next layout pass, without restart.
 - **AC-9 [Logic] (R8 offer)**: **GIVEN** `q_w_watch_ad` open with progress 3/3, **WHEN** the quest list renders, **THEN** no *Watch ad* button is shown and no rewarded ad is preloaded.
 - **AC-10 [Logic] (R9 credit)**: **GIVEN** `q_d_watch_ad` open at 0/1, **WHEN** the fake SDK fires earned-reward, **THEN** `credit_ad_watch` is accepted, progress = 1/1, `watch_id` ∈ `ad_watches_applied`.
@@ -319,6 +337,7 @@ Story types: **[Logic]** automated unit test; **[Integration]** automated test a
 - **AC-17 [Logic] (content rules)**: **GIVEN** a `quests.csv` row with `ad_variant = true` and `premium_auto_claim = false`, or `reward_items` containing `item_pa_lens`, **WHEN** the validator runs, **THEN** it fails.
 - **AC-18 [Device] (P1 spike, §12.1)**: **GIVEN** a real Android device with the Godot 4.7 build and AdMob test units, **WHEN** the banner and a rewarded test ad run and a UMP test geography (EEA) is forced, **THEN** the consent form appears before any request, the banner fits the band inside safe-area insets, and the earned callback credits the quest. Records plugin and SDK versions (closes the NOT SOURCEABLE item).
 - **AC-19 [Integration] (R1 boundary)**: **GIVEN** the parity harness, **WHEN** a full rewarded flow runs, **THEN** the only command from Ads in the log is `credit_ad_watch`, no Event-bus event is emitted by Ads, and two saves with the same commands, one Free and one Premium, differ only in quest-claim path, not in totals.
+- **AC-21 [Logic] (R1, R9 section and day cap)**: **GIVEN** the `ads` section with `credit_day = D`, `credits_today = 5` and `ad_rewarded_daily_max = 5`, **WHEN** a valid credit is submitted with `cur_day = D`, **THEN** refused 104; **WHEN** `quest_clock` rolls `cur_day` to D + 1 and a valid credit for an open ad slot is submitted, **THEN** accepted with `credit_day = D + 1`, `credits_today = 1`; **AND** a save/load round-trip restores all three fields byte-identically, and a replay of the same command log gives the same accept/refuse sequence.
 - **AC-20 [UI]**: Screenshots of the privacy notice, the consent form (test geography), the quest list with *Watch ad* in each state, the Settings *Privacy & ads* entry, and a guild screen with the banner band, in vi and en on a 1080×2400 screen, retained in `production/qa/evidence/`.
 
 *`qa-lead` lens applied: every rule R2–R10 and F1–F3 has a criterion. R11 (console category blocking) and R12 (signal list) are checked by review, not test — flagged here rather than dropped. Game Feel timings are playtest checks.*
@@ -330,16 +349,16 @@ Story types: **[Logic]** automated unit test; **[Integration]** automated test a
 | OQ-1 | Balance: F3 shows ad quests carry about 27% of daily quest gold and 24% of Linh Bảo. Is a Free player who never watches acceptably behind? Needs quest income as a share of total income from the balance simulator. | economy-designer / Quests author | Before Alpha balance pass |
 | OQ-2 | Schema change, not made here: add `config.csv` keys `ad_retry_base_s`, `ad_retry_max_s`, `ad_rewarded_daily_max`, `ad_reward_share_warn`, `ad_banner_fallback_dp`, and a data home for ad unit ids and `ad_privacy_policy_url`; add validator checks AC-15–AC-17. | Data layer (3) / User | Alpha |
 | OQ-3 | No-fill fallback: should repeated "no ad available" (low-fill regions, ad blockers) eventually let the player claim the ad quest without a video? Rejected here because it changes Quests' rules; Quests (25) may decide otherwise. | Quests author / User | When 25 is designed |
-| OQ-4 | Analytics consent: does the R3 notice suffice for analytics, or does Analytics (37) need its own opt-in in GDPR regions? Ads signals must not be forwarded before that is settled. | Analytics author / User | When 37 is designed |
+| OQ-4 | **RESOLVED (revision 2026-11-16):** Analytics (37) R2 runs its own opt-in after the R3 notice; Ads signals are forwarded only under it (R12). | Analytics | Closed |
 | OQ-5 | Store age rating and target audience: confirm not child-directed (Play Families policy not opted in). If children are included, ad formats, networks and consent tags must be redesigned. | User | Before Play listing |
 | OQ-6 | iOS: ATT prompt wording and timing, SKAdNetwork ids, UMP on iOS. Not verifiable without Apple Developer membership (§12.1). | User | Before iOS |
 | OQ-7 | Web build monetization is not defined in GDD §11; this GDD assumes no ads on Web. | User | Before Web |
 | OQ-8 | **NOT SOURCEABLE** — Godot 4.7 Android AdMob/UMP plugin API, adaptive banner sizing, mediation adapters, network fair-use and policy rules are not covered by `docs/engine-reference/godot/`. Verify in the P1 spike (AC-18) before an ADR; user maintains the blocked-category list. | User / technical-director | P1 spike |
 | OQ-9 | Server-side verification (SSV) of rewarded callbacks: worth it for leaderboard hygiene? Current design: client callback only, credits bounded by quest counts. | Leaderboards author / User | When 35 is designed |
-| OQ-10 | **PROVISIONAL: Entitlement and feature flags (32)** — assumes it exposes `ready` and `is_premium` with a change signal on the host side, reports definite Free for a fresh install once its first local check completes, and reports Premium for the PC build. | Entitlement GDD author | When 32 is designed |
-| OQ-11 | **PROVISIONAL: Quests and achievements (25)** — assumes quest instances with `quest_id`, `period_index`, `progress`, `count`; an objective-progress API callable from a command applier; `premium_auto_claim` handled by Quests from the entitlement snapshot; reset times in local calendar days. | Quests GDD author | When 25 is designed |
+| OQ-10 | **Partly RESOLVED (revision 2026-11-16):** R2(b) now reads `feature_on(no_ads)` from Entitlement's sim view and treats "guild loaded and first tick completed" (Entitlement R7 boot derivation) as definite; changes via event 3201. **Still open:** Entitlement R1 leaves host reads before the guild loads undefined, and its review asks for a host ready signal. If Entitlement adds one, R2(b) adopts it; recommended answer: keep the current rule (pre-load = closed), because the title and consent screens show no ads anyway. | Entitlement (32) | Entitlement revision |
+| OQ-11 | **RESOLVED (revision 2026-11-16):** Quests R5 provides `add_ad_progress(quest_uid) → ok \| not_ad_quest \| satisfied` (mapped to 101/102 in R9.3), R2/F4 provide `cur_day` and `period_index` (resets are Quests game days, not local calendar days), and the Premium direct claim is Quests'. | Quests (25) | Closed |
 | OQ-12 | **RESOLVED (consistency-check 2026-11-16):** command id 3301 in block 3300 (unique in the registry; Command layer R2 lets owners allocate in their block). Reason codes were `3301-1…4`, which are not integers (Command layer R4); renumbered to 101–104. | Command layer GDD author | Closed |
-| OQ-13 | **PROVISIONAL: Local save (6)** — new sim-state field `ad_watches_applied` (pruned to current and previous period) and the pending-watch side file. | Local save GDD author | When 6 is revised |
-| OQ-14 | **PROVISIONAL: Onboarding (44), Audio (40), Guild screens (39), Settings (45)** — `suppress_banner` flag on onboarding steps; mute during video; banner band in every layout; *Privacy & ads* entry. | Each owner | When each is designed |
+| OQ-13 | **RESOLVED (revision 2026-11-16):** the state lives in Ads' own `ads` section registered through Local save R6 (R1); no Local save field is needed. The pending-watch side file stays beside the save, outside it. | Local save (6) | Closed |
+| OQ-14 | **RESOLVED (revision 2026-11-16):** Onboarding R1 has `suppress_banner` (0 in Wave 1); Audio R9 mutes on `rewarded_state_changed(Showing)`; Guild screens R2 reads `banner_band_px()` (R6, F4) with no knob of its own; Settings R13 hosts *Privacy & ads* with these interface names. | Each owner | Closed |
 
 *Post-design note — CD-GDD-ALIGN run in this session against GDD §2/§11 text (no pillars, concept or brief exist): no interrupting formats (R1), Premium and PC never see ads (R2), rewarded watches are opt-in and only through quests (R8), ad rewards never include Kính/Nhãn (Edge Cases, AC-17). Concern noted for a later review: F3's ~25% reward share tests how "optional" the watch is (OQ-1). Verdict recorded as NOT ASSESSED because the required pillar input is missing.*

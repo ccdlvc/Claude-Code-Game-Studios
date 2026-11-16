@@ -48,7 +48,7 @@ Three framings were considered (creative-director lens):
 
 - *game-designer* — The player's decisions are who goes with whom, who leads and who stays solo. Auto-formation must be good enough that a free player is not punished, and transparent enough that a better human choice is visible (warning tags, Utility AI's fit badges). The player cannot pick a ground here (Utility AI), cannot change a roster mid-trip, and cannot exceed five.
 - *systems-designer* — Every rule must be deterministic and integer, with no random draws, so realtime, offline, the simulator and server replay agree. A party is Assembled or OnTrip; disbanding is terminal. The drift-out rule damps the "members level apart" loop.
-- *ai-programmer* — Formation is a greedy pass with a fixed order and a cost bounded by the roster (40 disciples at most). It runs inside the Member state machine's P2 pass, before Utility AI picks grounds, so free members are grouped before anyone is sent out alone.
+- *ai-programmer* — Formation is a greedy pass with a fixed order and a cost bounded by the roster (80 members at most, `member_cap` 12–80, Guild and buildings F2). It runs inside the Member state machine's P2 pass, before Utility AI picks grounds, so free members are grouped before anyone is sent out alone.
 - *art-director* — Parties must read on the map as one unit: a banner over the leader and a tag for "no buffer". See Visual/Audio.
 - *narrative-director* — The only story beat here is "these people stay together", which Retention turns into bonds.
 
@@ -77,7 +77,7 @@ A member belongs to at most one party. A member in no party is *free*. Membershi
 
 1. **Fill.** For each unlocked, Assembled party with fewer than `party_max` members, in ascending `party_id`: while it has room, add the free groupable member with the highest Utility AI `composition_score(party ∪ {c}, none)` among those whose level is within `ai_level_spread_max` (Utility AI, 10) of the leader's level. Ties: higher level, then lower `member_id`.
 2. **Form.** Sort the remaining free groupable members by level descending, then `member_id` ascending. While at least two remain: the first is the leader of a new party. Candidates are the others whose level is at least the leader's level − `ai_level_spread_max` (the leader is the highest remaining, so no candidate is above). Add candidates by the same rule as Fill until the party is full or no candidate remains. If no candidate exists, the leader stays free and is skipped for the rest of this pass. Otherwise the party is created (event 1301) and its members leave the list.
-3. **Hand over.** Return, in ascending `party_id`, one group per party that has at least one member who is `idle` with a hunt intent (its roster by R9), then one group of one per free member with a hunt intent who was not grouped. The Member state machine asks Utility AI `choose_ground` for each group and submits trip starts to Zones (Utility AI call sequence, steps 3–4).
+3. **Hand over.** Return, in ascending `party_id`, one group per **Assembled** party that has at least one member who is `idle` with a hunt intent (its roster by R9), then one group of one per free member with a hunt intent who was not grouped. A party that is OnTrip (States and Transitions) is never handed over, and its members who are at the guild (added during the trip, R4) are **held**: they are in neither a party group nor a group of one until the trip closes and the party is Assembled again. This keeps "a member keys at most one trip at a time" (R5). The Member state machine asks Utility AI `choose_ground` for each group and submits trip starts to Zones (Utility AI call sequence, steps 3–4).
 
 **The pass adds a member even when the score gain is zero or negative**, because party size is Party's rule: a fifth member always raises F1 and kill speed. The score only decides *which* candidate. Because Utility AI counts the buffer bonus once per roster (Utility AI R11), a party that already has a buffer prefers anything else, so scarce buffers spread over parties before doubling up.
 
@@ -169,6 +169,8 @@ The free tier keeps automatic formation and every manual edit (§6.12: "Ở Free
 | 1304 | `party_member_left` | party_id | member_id | R8 row (1–6) | 0 |
 | 1305 | `party_leader_changed` | old party_id | new party_id | 0 | 0 |
 | 1306 | `party_banner_used` | party_id | until tick, low 32 bits | 0 | 0 |
+
+Form emits 1301 and then one 1303 per member in slot order (the leader included); `disband_party` and a disband by R8 emit 1302 only, with no 1304 per member (F4's peak counts this way).
 
 CA/PA's `event:party_hunt` reveal ("completes a hunt trip in a party of 2 or more") can be read from Zones 1104 with the trip's roster size (Zones 1101 `c`); Party adds no event for it.
 
@@ -266,27 +268,27 @@ The group_bonus formula is defined as:
 
 ### F3 — Formation pass cost
 
-`calls_pass ≤ P × (party_max − 1) × P`, with `P` the free groupable members (≤ 40, `member_cap` at headquarters level 8) and one call = one Utility AI `composition_score` on ≤ 5 members.
+`calls_pass ≤ P × (party_max − 1) × P`, with `P` the free groupable members (≤ 80, the top of `member_cap` 12–80, Guild and buildings F2) and one call = one Utility AI `composition_score` on ≤ 5 members.
 
 **Variables:**
 | Variable | Type | Range | Source | Description |
 |----------|------|-------|--------|-------------|
-| P | int | 0 – 40 | calculated | Free groupable members at the pass |
+| P | int | 0 – 80 | calculated | Free groupable members at the pass |
 | party_max | int | 5 | data file (`party_max`) | Party size cap |
 
-**Output Range:** 0 (no free members: the pass returns existing groups only) to 6,400 score calls (`rearrange_all` over 40 members). Typical: a party returns and Fill looks at 0–3 free members, under 20 calls.
+**Output Range:** 0 (no free members: the pass returns existing groups only) to 25,600 score calls (`rearrange_all` over 80 members: `80 × 4 × 80`). Typical: a party returns and Fill looks at 0–3 free members, under 20 calls.
 **Example:** 12 free members after a re-arrange: at most `12 × 4 × 12 = 576` calls. Planning statement for Sim core's per-phase budget; measured in AC-24.
 
 ### F4 — Event volume (Event bus F1, F4)
 
-`ring_per_day(1300 block) = 400` at the max-roster fixture (40 disciples, 8 parties).
+`ring_per_day(1300 block) = 800` at the max-roster fixture (80 members, 16 parties). PROVISIONAL until AC-25 measures it.
 
 **Variables:**
 | Variable | Type | Range | Source | Description |
 |----------|------|-------|--------|-------------|
 | ring_per_day | int | ≥ 0 | constant (declared here) | Peak ring records per 86,400 game seconds |
 
-**Output Range:** the declared bound is 400. Rationale: membership events follow homecomings (about 6 per party-hour × 8 parties × 24 h ≈ 1,150 homecomings a day), and only a small share change membership (drift, absence, fills). Peak per tick: one `rearrange_all` emits at most 8 disbands + 8 forms + 40 joins = 56 records.
+**Output Range:** the declared bound is 800, PROVISIONAL. Rationale: membership events follow homecomings (about 6 per party-hour × 16 parties × 24 h ≈ 2,300 homecomings a day), and the bound assumes at most about a third of them change membership (drift, absence, fills); the earlier 400 at 40 members is scaled linearly with the roster. The share is not derived from a rule; AC-25 measures it and the number is replaced by the measurement. Peak per tick: one `rearrange_all` emits at most 16 disbands + 16 forms + 80 joins = 112 records (R18: Form emits one 1303 per member, disband no 1304).
 **Example:** a stable guild with no level drift emits 0 per day; AC-25 measures the fixture and this number is raised in the same change if a rule raises it.
 
 ## Edge Cases
@@ -330,7 +332,7 @@ The group_bonus formula is defined as:
 | Items and loot (26) | Soft | `take(item_banner)`; item `stats` | Designed — conforms (R9) |
 | Data layer (3) | Hard | `config.csv` party keys; `schools.csv`; `items.csv` | Designed |
 | Command layer (5), Event bus (42), Local save (6) | Hard | Command and event block 1300, serializer + `check()` | Designed |
-| Entitlement and feature flags (32) | Soft | Premium in the injected snapshot | **No GDD** (PROVISIONAL) |
+| Entitlement and feature flags (32) | Soft | Premium in the injected snapshot | Designed |
 | CA/PA and traits (9) | Soft | Only through Utility AI F3 (`party_synergy`) | Designed |
 
 ### Downstream (systems that depend on this one)
@@ -343,7 +345,7 @@ The group_bonus formula is defined as:
 | Offline progress (31) | Hard | Membership at the hand-off tick (R20) | Designed — its OQ-4 answered |
 | Retention (16) | Soft | `party_of` at each hour slot | Designed — conforms (R9) |
 | Recruitment (15) | Soft | Guild buffer shortfall (R15) | Designed |
-| Guild screens (39), World view (38) | Soft | Records, warnings, events | **No GDD** |
+| Guild screens (39), World view (38) | Soft | Records, warnings, events | Designed |
 | Dev tooling and parity harness (43) | Soft | Golden vectors for F1 and the formation pass | Designed |
 
 **Bidirectional check.** The systems index lists Party as depending on Member model, CA/PA and traits, Combat and Utility AI; this GDD adds Schools and Member state machine to that row (Combat is a consumer here, and CA/PA is reached only through Utility AI). Zones, Combat, Schools, Member model, XP curve, Utility AI, Member state machine, Golden Boss, Offline and Retention already list Party.
@@ -446,8 +448,9 @@ The group_bonus formula is defined as:
 - **AC-21 [Logic] (R11)**: **GIVEN** a free-tier snapshot, **WHEN** `set_party_lock(…, 1)`, `rearrange_all`, `save_preset` or `apply_preset` is submitted, **THEN** each is refused with `PARTY_PREMIUM_REQUIRED`. **GIVEN** Premium, **WHEN** `rearrange_all` applies, **THEN** every unlocked Assembled party is disbanded and Form runs once; locked and OnTrip parties are unchanged. [PENDING: Entitlement 32 snapshot]
 - **AC-22 [Integration] (R16)**: **GIVEN** 12 raid participants: 5 of a full party, 1 of a second party and 6 free members, **WHEN** Golden Boss builds its groups, **THEN** `parties_for_raid` returns the full party, then the second party with 1 participant, and no party record is created for Golden Boss's temporary groups.
 - **AC-23 [Integration, Balance] (F1, R7)**: **GIVEN** `tools/balance_sim.py --quick` after the R7 solo change, **WHEN** run, **THEN** party and solo L100 times stay within Dev tooling's budget bands, and solo `moc_1` and `tho_1` times before and after are reported. [PENDING: S9 budget table]
-- **AC-24 [Performance] (F3)**: **GIVEN** the max-roster fixture (40 free groupable members), **WHEN** `rearrange_all` runs on the min-spec device, **THEN** the P1 applier stays within Sim core's per-phase budget. [PENDING: P1 spike]
-- **AC-25 [Integration] (F4)**: **GIVEN** the max-roster fixture simulated for 24 game hours, **WHEN** the 1300-block ring records are counted, **THEN** they are ≤ 400.
+- **AC-24 [Performance] (F3)**: **GIVEN** the max-roster fixture (80 free groupable members, 25,600 score calls at most), **WHEN** `rearrange_all` runs on the min-spec device, **THEN** the P1 applier stays within Sim core's per-phase budget. [PENDING: P1 spike]
+- **AC-25 [Integration] (F4)**: **GIVEN** the max-roster fixture simulated for 24 game hours, **WHEN** the 1300-block ring records are counted, **THEN** they are ≤ 800, and the measured value replaces F4's provisional bound.
+- **AC-31 [Logic] (R3 hand-over)**: **GIVEN** a party OnTrip and a member added to it by `add_to_party` who is `idle` with a hunt intent, **WHEN** `groups_for_trips` returns, **THEN** neither that party nor a group of one containing that member is in the list; **WHEN** the trip closes and the party is Assembled, **THEN** the next pass hands the party over with that member in its roster.
 - **AC-26 [Integration] (R20)**: **GIVEN** an 8-hour offline gap, **WHEN** Offline fast-forwards it, **THEN** no Party event is emitted during the gap, the parties at its end equal those at its start, and no `trips_led` value changed.
 - **AC-27 [Logic] (R19, load)**: **GIVEN** a save with a party of 5 and `party_max` patched to 4, **WHEN** it loads, **THEN** the slot-4 member is free and one 1304 is emitted on the first tick.
 - **AC-28 [Integration] (Zones R5, R6)**: **GIVEN** a 5-member party with buffer and tank, **WHEN** Zones starts a trip, **THEN** the trip records `xp_mult_ppm = 1,470,000` and its first encounter key is `[leader member_id, pre-increment trips_led, 0]`.
@@ -467,4 +470,4 @@ The group_bonus formula is defined as:
 | OQ-7 | **Hunt intent carries a ground; Utility AI chooses per group.** Member state machine R10 step 5 sets an intent with a ground from a per-member `choose_job`, while Utility AI's call sequence chooses the ground per group after Party groups members. Party ignores the intent's ground and groups first (R3). The two sibling GDDs must agree; an ordered hunt at a specific ground (MSM step 4) also needs a rule: does the ordered member drag their party (MSM PROVISIONAL)? Proposed: an ordered member hunts solo at the ordered ground for that trip and counts as absent from the party. **RESOLVED (consistency-check 2026-11-16):** Member state machine R10 (owner of orders and the P2 pass) no longer gives intents a ground: the member step only marks a member free to hunt, Party groups first, then the ground is chosen per group. A group containing an unapplied `hunt` order goes to that order's ground (lowest `member_id`'s order if several); otherwise Utility AI `choose_ground`. The proposed solo rule is not adopted. | Member state machine (41), Utility AI (12) | Closed |
 | OQ-8 | **Reason-code numbers** for R13 inside block 1300 are assigned in the implementation story (→ ADR with the Command layer table). | Implementation story | Before the Party story |
 | OQ-9 | **Per-party `loot_rule` (§4.1).** Party stores none; loot rules are guild-wide and Items' (Items OQ-7). Confirm. | Items (26), user | Vertical Slice |
-| PROVISIONAL-1 | **Entitlement and feature flags (32)** — the injected snapshot carries a Premium flag the command appliers read. | Entitlement (32) | When 32 is designed |
+| PROVISIONAL-1 | Closed 2026-11-16: Entitlement and feature flags (32) is designed and supplies the injected snapshot. | — | — |

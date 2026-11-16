@@ -1,6 +1,6 @@
 # Combat
 
-> **Status**: Designed (pending /design-review in a fresh session)
+> **Status**: Designed (revised 2026-11-16, pending re-review)
 > **Author**: user + Claude (autonomous batch run, decisions in `production/session-logs/decision-log.md`)
 > **Last Updated**: 2026-11-16
 > **Last Verified**: 2026-11-16
@@ -53,20 +53,28 @@ No conflict between the views needed a user decision. Decisions taken autonomous
 
 | Field | Meaning |
 |---|---|
-| `groups` | One or more ordered lists of members. A hunt fight has one group (the party, or a solo member as a group of one). A raid has one group per party, temporary parties included (Party 13, Golden Boss 14). Buffs and heals act within a group (R8, R9). |
-| `monster` | The `monsters.csv` row being fought (level, element, hp/atk/def multipliers, speed). |
-| `hp_scale`, `dmg_scale` | Multipliers on the monster's HP and hit. 1.0 for a hunt fight. Raid: `(1 + hp_per_participant × n) × raid_hp_mult` and `raid_dmg_mult` (Golden Boss 14 owns these values). |
+| `groups` | One or more ordered lists of members. A hunt fight has one group (the party, or a solo member as a group of one). A raid has one group per party, temporary parties included (Party 13, Golden Boss 14). Buffs and heals act within a group (R8, R9); a group's own slot order breaks heal-target ties (R7). |
+| `order` | The **combatant order**: every member of `groups` exactly once, in the order the caller gives. A hunt fight passes the group's slot order. A raid passes its participant list (Golden Boss R8), which need not follow the groups. |
+| `start_hp[member]` | Each member's HP at fight start (binary64, R4a). A hunt passes the member's current HP; the raid passes `hp_max`; the Arena passes `hp_max` or the HP carried from its previous duel (Arena R6). Combat never reads stored HP itself. |
+| `monster` | A row with the `monsters.csv` fields (level, element, hp/atk/def multipliers, speed). Normally a `monsters.csv` row; a caller may build one (the Arena champion, Arena F1), and that caller validates it with the same content rules (level ≥ 1, speed > 0, multipliers > 0) before calling. |
+| `hp_part_scale`, `hp_raid_scale`, `dmg_scale` | Multipliers on the monster's HP (two separate factors, applied in this order, F1) and on its hit. All 1.0 for a hunt fight. Raid: `hp_part_scale = 1 + hp_per_participant × n`, `hp_raid_scale = raid_hp_mult`, `dmg_scale = raid_dmg_mult` (Golden Boss 14 owns these values). The two HP factors are never pre-multiplied: `(M × X) × R` and `M × (X × R)` differ in binary64 (measured: 14,036 of 40,000 cases). |
 | `attack_interval_base_s` | The monster's base attack interval before speed. 1.0 for a hunt fight; `raid_boss_interval_s` for a raid. |
 | `targets_per_attack` | How many different members one monster attack hits. 1 for a hunt fight; `raid_boss_targets` for a raid. |
 | `enrage_every_s`, `enrage_atk` | Enrage step. Disabled (no step) for a hunt fight; `raid_enrage_every_s`, `raid_enrage_atk` for a raid. |
 | `time_limit_s` | The fight is lost past this time. `fight_time_limit_s` for a hunt fight; `raid_time_limit_s` for a raid. |
 | `want_timeline` | Whether to record the action timeline (R14). Does not change the outcome. |
 
-The **combatant order** is the members of `groups` concatenated in order, each group in its own slot order. Only members that are alive with HP > 0 when the fight starts take part. The order decides every tie (R6) and the order of the start-up draws (R13).
+Only members of `order` with `start_hp > 0` take part, in `order`. The combatant order decides every action tie (R6), the order of the start-up draws (R13) and the order of the monster's target pool (R10). The group slot order decides only heal-target ties (R7).
 
-With the hunt values above, the resolver reproduces `fight()` in `sim/hunt.py` bit for bit, and with the raid values it reproduces `simulate_raid()` in `sim/raid.py`. Every hunt-only value is either the identity (×1.0) or a disabled step, and multiplying a binary64 by 1.0 is exact. (Decision: one resolver for hunt and raid.)
+**Reference parity (decision D5, 2026-11-16: Combat matches the reference code exactly; no `sim_version` bump).** With the hunt values above, `order` = the party's slot order and `start_hp` = current HP, the resolver reproduces `fight()` in `sim/hunt.py` bit for bit. With the raid values, `order` = the `members` list passed to `simulate_raid()`, `groups` = `form_parties(members)` and `start_hp = hp_max` for everyone, it reproduces `simulate_raid()` in `sim/raid.py` bit for bit. The reference draws start-ups, breaks action ties and builds the target pool in raw `members` order, while a heal picks within `parties[pi]` in party order; `order` and `groups` encode exactly those two orders. Every hunt-only value is either the identity (×1.0) or a disabled step, and multiplying a binary64 by 1.0 is exact. How a caller builds `groups` and `order` is the caller's (Golden Boss R7–R8); parity is a property of the resolver on given inputs. (Decision: one resolver for hunt and raid.)
 
-**R4 — Combatant stats are a snapshot.** At the start of the fight Combat reads, for each member, `dps`, `hp_max` and `def` from Member model (8), the element from Schools (20) (none for an unaffiliated member), the school's `role` and `buff_role`, and the member's current `hp`. A change to equipment, school or level during the fight's world time does not affect it (consistent with RNG R5: changed inputs, same dice, applied to the next fight).
+**R4 — Combatant stats are a snapshot.** At the start of the fight Combat reads, for each member, the Member model (8) `profile(member)` integers, the element from Schools (20) (none for an unaffiliated member), the school's `role` and `buff_role`, and `start_hp` from the encounter. A change to equipment, school or level during the fight's world time does not affect it (consistent with RNG R5: changed inputs, same dice, applied to the next fight). Member model's "level rises mid-fight" edge case therefore means the *next* fight reads the new profile; the fight in progress keeps its snapshot.
+
+**R4a — Integer boundary.** Member model stores integers (`dps_milli`, `hp_max_milli`, `def_milli`, `hp_milli`); Combat runs in binary64 (Formulas, OQ-3). The conversion is fixed:
+- **In:** `dps = dps_milli / 1000`, `hp_max = hp_max_milli / 1000`, `def = def_milli / 1000`, and for a hunt `start_hp = hp_milli / 1000`: each a correctly rounded binary64 division of an integer below 2⁵³.
+- **Out:** the caller writes `hp_milli = 0` for a member in `died`, otherwise `hp_milli = min(hp_max_milli, max(1, round_half_away(hp_after × 1000)))`. A survivor never rounds to 0, and an untouched member's HP round-trips exactly. `dealt`, `healed` and `taken` stay binary64 for the caller (Golden Boss F3). Combat itself writes nothing (R1): Member model lists Combat (10) as the writer of `hp_milli`, and that write is this rule, applied by the caller at the deadline tick on Combat's behalf.
+- **Parity:** the reference reads float stats from `sim/model.py`, which differ from Member model's integer profile by up to 0.001 (Member model F3). Parity vectors (AC-1, AC-2) feed both implementations the same binary64 stats; profile parity is Member model AC-11/AC-12's.
+- Gear stats outside the profile (`gear_stat(member, crit_rate)`, Member model OQ-4) are ignored in stage 1; they become inputs only through a stage-2 kind handler (R15).
 
 **R5 — Monster stats.** The monster's max HP, hit and defence come from F1 at the monster's level and the row's multipliers, then `hp_scale` and `dmg_scale`. The monster's level is also the **encounter level** used by the defence factor in both directions (F2).
 
@@ -78,11 +86,13 @@ With the hunt values above, the resolver reproduces `fight()` in `sim/hunt.py` b
 4. Otherwise the monster attacks (R10); set `t` to the monster's next-attack time and add the monster's interval to it.
 5. If the monster's HP is at or below 0, the fight is **won** at time `t`. Otherwise go to 1.
 
+The timeout check runs only at the top of the loop, so an action at a time just past `time_limit_s` (scheduled while `t ≤ time_limit_s`) can still kill the monster: `won = true` with `duration_s > time_limit_s` is possible, by at most one action interval (as built; AC-7).
+
 Time is a binary64 number of seconds from the fight's start. The loop is event-driven; it never steps by tick (`GODOT_PORT.md` rule 5).
 
 **R7 — A member's action.** In MVP stage 1 (built today) a member's action is one of:
 
-- **Heal**, if the member's role is `healer_support` and the alive member of its own group with the lowest HP fraction (ties: earliest in combatant order; the healer may pick itself) is below `healer_heal_threshold`. The target gains F6 HP, capped at its `hp_max`. The heal replaces the attack for that action.
+- **Heal**, if the member's role is `healer_support` and the alive member of its own group with the lowest HP fraction (ties: earliest in the group's slot order, as the reference's `min` over `parties[pi]`; in a hunt fight this is the combatant order; the healer may pick itself) is below `healer_heal_threshold`. The target gains F6 HP, capped at its `hp_max`. The heal replaces the attack for that action.
 - **Attack** otherwise. The monster loses F4 damage.
 
 From MVP stage 2 (real skills, §20 S4) the attack is replaced by the skill rule in R15. The heal rule stays as the healer's fallback when no healing skill is ready.
@@ -93,13 +103,14 @@ From MVP stage 2 (real skills, §20 S4) the attack is replaced by the skill rule
 
 **R10 — The monster's attack.** Each attack hits `targets_per_attack` different alive members, picked one after another from a pool that starts as all alive members in combatant order and loses each pick:
 
+- The pool starts as the alive members in combatant order (`order`), not in group order.
 - If the pool holds at least one tank (school role `tank` or `tank_guardian`), draw `u`; if `u < tank_aggro_share`, pick a tank from the pool with `choice`, otherwise pick any member of the pool with `choice`.
 - If the pool holds no tank, pick any member of the pool with `choice`.
 - If the pool is empty, the attack ends early.
 
 Each picked target loses F5 damage. A target reaching HP ≤ 0 is set to exactly 0 and **dies** (R11). Monsters in stage 1 have only this basic attack; the `ai_skills` column is not executed yet (Open Questions).
 
-**R11 — Death.** A dead member takes no further action, cannot be targeted or healed in this fight, and stays dead in the result. Combat does not revive anyone. Revival, the Linh Miếu wait and the trip's end are the caller's (Zones and hunt 11: `revive_s`; Golden Boss 14: Linh Miếu). A member's death counter is incremented by the caller from `FightResult.died`.
+**R11 — Death.** A dead member takes no further action, cannot be targeted or healed in this fight, and stays dead in the result. Combat does not revive anyone. Revival, the Linh Miếu wait and the trip's end are the caller's (Zones and hunt 11: `revive_s`; Golden Boss 14: Linh Miếu). Deaths reach other systems only as `FightResult.died`, reported by the caller (Zones 1103, Golden Boss R9); lifetime death counts are Dev tooling (43) instrumentation derived from events, not state (Member model R1).
 
 **R12 — Element multiplier.** Every hit, in both directions, is multiplied by F3 for the attacker's element against the defender's element. A member with no school has no element and is neutral, ×1.0 both ways (this answers Schools and school change OQ-4).
 
@@ -128,14 +139,15 @@ Any change to this list (a new draw, a reorder, a removed draw) is a breaking ch
 
 `dealt` is what `fight()` returns as `contrib` today. `healed` and `taken` are new, consume no draws and do not change outcomes; Golden Boss raid (14) uses them in its contribution score (§6.13).
 
-**R15 — Skill execution (MVP stage 2, §20 S4) [PROVISIONAL on Skills 21].** When real skills replace the flat `skill_dps_bonus`:
+**R15 — Skill execution (MVP stage 2, §20 S4).** When real skills replace the flat `skill_dps_bonus`:
 
-- Skills (21) owns the skill rows and the single effect schema (the `effects` column of `skills.csv`, keyed values with `L` as the skill level). Combat owns the **operator** for each effect key and executes rows only through those operators. Combat never branches on a skill ID or a school ID (systems index, per-system notes). An effect key without an operator is a content error caught by the validator, not a silent no-op.
+- Skills (21) owns the skill rows, the closed effect vocabulary and **each key's kind** (Skills R2: damage, damage over time, heal and restore, modifier, control, shape, spawn, trigger; a key never changes kind). Combat implements **one handler per kind** and reads the key's parameters; it never branches on a skill ID, school ID or slot (Skills R2, systems index per-system notes). A kind without a Combat handler is a content error caught by the validator, not a silent no-op. Combat reads each member's loadout and passive sheet from Skills R9 (the resolved kit).
+- **Mana, cooldowns and casting** are Combat's in-fight state (Skills R1, OQ-4): the MP pool and cooldown timers live only inside one `resolve` call. The base MP maximum and regeneration per member are not defined by any GDD yet (OQ-11).
 - **Passive** skills apply at fight start as part of the R4 snapshot.
 - **Choosing an action** is a fixed rule with no draws: on each action, use the ready active skill with the highest `slot` (an ultimate before a basic active) whose cooldown has elapsed and whose MP cost the member can pay; otherwise use the basic attack (R7). A ready healing skill counts as the healer's heal.
-- **Effect families** combat must operate: direct damage (`dmg_mult`, `hits`, `shots`, `def_ignore`, `crit_rate`, `crit_dmg`, `element_dmg`), damage over time (`burn_per_s`, `poison_per_s`, `tick_s`, stack caps), healing (`heal_mult`, `hp_pct`, `hot_mult`, `revive_hp_pct`, `once_per_battle`), stat modifiers with duration (`atk_pct`, `def_pct`, `dmg_taken`, `buff_*`, `dur_s`), control (`stun_s`, `slow_pct`, `root_s`, `taunt_s`, `aggro`), shields, and summons. Timed effects are scheduled on the same event timeline as R6.
+- **Kinds** Combat must handle are Skills R2's; which key belongs to which kind is Skills R2's table, not this GDD's (for example `crit_rate`, `crit_dmg`, `def_ignore`, `element_dmg` and `hp_pct` are `modifier` keys there). Timed effects are scheduled on the same event timeline as R6.
 - **Spatial keys** (`aoe_radius`, `knockback`, `dash`, `pull`, `range`) have no effect in a one-monster fight with no positions. They are kept in data for the world view and for multi-monster encounters (Open Questions OQ-5).
-- **New draws** (a crit roll, a cleanse chance) come after the stage-1 draws of the same action, in the order the operators are listed in the row. Their exact list is fixed when S4 is built and is a `sim_version` bump.
+- **New draws** (a crit roll, a cleanse chance) come after the stage-1 draws of the same action, in the order the effects are listed in the row. Every data-driven chance (Skills `chance` values are ppm) is drawn with RNG `chance_ppm(k)` (RNG R8, F6). Their exact list is fixed when S4 is built and is a `sim_version` bump.
 
 The S4 acceptance target stays §20's: each school completes a full fight, and role damage and effectiveness match `sim_roles.csv` within ±15%.
 
@@ -174,18 +186,18 @@ A fight has a short lifetime inside one `resolve` call. A combatant has three st
 | Sim core and tick loop (1) | in | Runs inside the caller's handler; `tick_rate` for F8; `ctx.derive` | Sim core R5 |
 | Deterministic RNG (2) | in | One generator per fight: domain 1 `combat` for hunt fights (key layout below); the raid's own domain 6 for raid fights | RNG R3–R7; this GDD owns the domain-1 key and the draw order |
 | Data layer (3) | in | `monsters`, `sim_params`, `sim_roles`, `schools`, `config` (element multipliers), later `skills` | Data layer R4 |
-| Member model (8) | in / out | In: `dps`, `hp_max`, `def`, current `hp`. Out (via caller): `hp_after`, deaths | Member model owns stats and storage |
+| Member model (8) | in / out | In: `profile` integers and `hp_milli` (converted by R4a). Out (via caller, R4a): `hp_milli` from `hp_after`, deaths | Member model owns stats and storage; Combat owns the conversion |
 | Schools and school change (20) | in | `element` (or none), `role`, `buff_role` | Schools R2 |
-| Skills (21) | in | Effect rows and the effect schema (stage 2) | Skills owns the schema; Combat owns the operators |
+| Skills (21) | in | Loadout and passive sheet (stage 2, Skills R9) | Skills owns the vocabulary and kinds; Combat owns one handler per kind |
 | Zones and hunt trips (11) | out | Calls `resolve` per encounter; reads `FightResult`; uses `duration_s` | Combat owns `resolve` |
 | Party (13) | in | Group membership and slot order | Party owns composition |
 | Golden Boss and guild raid (14) | out | Calls `resolve` with raid encounter values; reads `dealt`, `healed`, `taken`, `monster_hp_left` | Raid owns the raid values and the contribution score |
 | Offline progress (31) | out (indirect) | Through Zones and hunt's sampled trips | Zones and hunt |
 | Realtime world view (38), Audio (40) | out (indirect) | `timeline` from the callers' side-effect-free queries (Zones `fight_timeline`, Golden Boss `raid_fight_timeline`), never as events | Caller owns the query; the world view plays back |
 | Dev tooling and parity harness (43) | out | Golden vectors for `resolve` | Dev tooling owns the harness |
-| Endless Tower (19), Arena (18) | out (Full Vision) | Call `resolve` under their own RNG domains | — |
+| Endless Tower (19), Arena (18) | out (Full Vision) | Call `resolve` under their own RNG domains; the Arena passes a caller-built champion row and `start_hp` (R3) | Combat owns `resolve`; the caller owns and validates its row |
 
-**Domain-1 event key** (RNG R5, R6): `[party_id, trip_ordinal, encounter_ordinal]`. `party_id` is the stable ID of the hunting group (a solo hunter hunts as a party of one); `trip_ordinal` is the party's saved trip counter, which only a new trip advances; `encounter_ordinal` counts fights within the trip from 0. Unique because a party ID is never reused and the pair of ordinals only increases within it. None of the three is player-mutable before the fight. [PROVISIONAL: Party 13 and Zones and hunt 11 must provide a never-reused `party_id` for every hunting group including solo, and a saved `trip_ordinal`.]
+**Domain-1 event key** (RNG R5, R6): `[party_id, trip_ordinal, encounter_ordinal]`, as Zones R5 and F9 define it. `party_id` is the `member_id` of the trip's key leader (Party R5; a solo hunter keys their own trips); `trip_ordinal` is that leader's saved `trips_led` counter, advanced only when a trip keyed on them starts; `encounter_ordinal` counts fights within the trip from 0. Unique because member IDs are never reused (Member model R2), a member keys at most one trip at a time and `trips_led` only increases. None of the three is player-mutable before the fight.
 
 ## Formulas
 
@@ -197,7 +209,7 @@ All formulas run in IEEE-754 binary64, evaluated left to right in the order writ
 
 The monster stat formulas are defined as:
 
-`mon_hp = monster_hp_coef × L ^ monster_hp_exp × hp_mult × hp_scale`
+`mon_hp = monster_hp_coef × L ^ monster_hp_exp × hp_mult × hp_part_scale × hp_raid_scale`
 `mon_hit = monster_atk_coef × L ^ monster_atk_exp × atk_mult × monster_dmg_factor × dmg_scale`
 `mon_def = monster_def_coef × L ^ monster_def_exp × def_mult`
 
@@ -210,7 +222,7 @@ The monster stat formulas are defined as:
 | monster_def_coef, monster_def_exp | float | 3, 1.2 | data file (`config.csv`) | Defence curve |
 | hp_mult, atk_mult, def_mult | float | 0.7–22, 0.9–2.2, 0.7–2.0 in today's data | data file (`monsters.csv`) | Per-monster multipliers (bosses are high) |
 | monster_dmg_factor | float | 0.05 | data file (`sim_params.csv`) | Global scale on monster hits; the main survival knob |
-| hp_scale, dmg_scale | float | 1.0 (hunt); raid values (R3) | calculated by caller | Encounter scaling |
+| hp_part_scale, hp_raid_scale, dmg_scale | float | 1.0 (hunt); raid values (R3) | calculated by caller | Encounter scaling; the two HP factors are applied one after the other, left to right, as `sim/raid.py` does |
 
 **Output Range:** at multipliers 1.0: L1 hp 40, hit 0.30, def 3.0; L100 hp 15,924, hit 94.9, def 754; L200 hp 39,210, hit 225.6, def 1,731. All positive for L ≥ 1. L = 0 gives 0 HP (an instant win) and is rejected by the content validator (monster level ≥ 1).
 **Example:** `m_z01_d` (L8, hp_mult 1.4, atk_mult 1.0, def_mult 1.3): `mon_hp = 40 × 8^1.3 × 1.4 = 835.9`, `mon_hit = 6 × 8^1.25 × 1.0 × 0.05 = 4.04`, `mon_def = 3 × 8^1.2 × 1.3 = 47.3`.
@@ -340,7 +352,7 @@ The deadline tick formula is defined as:
 | tick_rate | int | 10 | data file (`config.csv`, Sim core owns) | Ticks per second |
 
 **Output Range:** 0 to about 6,010 ticks for a 600 s hunt limit. A fight with `duration_s = 0` (empty encounter) applies in the same tick.
-**Example:** 15.6 s at 10 Hz: `ceil(156.16) = 157` ticks after the start.
+**Example:** the reference fight's 15.6158 s at 10 Hz: `ceil(156.158) = 157` ticks after the start. (A duration of exactly 15.6 s gives `ceil(156.0) = 156`.)
 
 The rule is offered to realtime callers; aggregate and offline callers simply add `duration_s` to their own clocks, as `run_trip` does today.
 
@@ -379,10 +391,11 @@ The rule is offered to realtime callers; aggregate and offline callers simply ad
 | Sim core and tick loop (1) | Hard | Runs inside a caller's handler; `ctx.derive`, `ctx.fail`, `tick_rate` | Designed (Needs Revision) |
 | Deterministic RNG (2) | Hard | One generator per fight; domain 1; `random`, `choice` | Designed (Needs Revision) |
 | Data layer and content pipeline (3) | Hard | `monsters`, `sim_params`, `sim_roles`, `schools`, `config`; later `skills` | Designed |
-| Member model (8) | Hard | `dps`, `hp_max`, `def`, current `hp` per member | Not designed — PROVISIONAL |
+| Member model (8) | Hard | `profile` integers, `hp_milli` (R4a) | Designed (Needs Revision) |
 | Schools and school change (20) | Hard | `element` or none, `role`, `buff_role` | Designed |
-| Skills (21) | Hard from stage 2 (S4) | Effect rows and schema | Not designed — PROVISIONAL |
-| Party (13) | Soft | Group membership and slot order; a stable `party_id` for the key | Not designed — PROVISIONAL |
+| Skills (21) | Hard from stage 2 (S4) | Loadout, passive sheet, effect vocabulary and kinds | Designed (Needs Revision) |
+| Party (13) | Soft | Group membership and slot order; the key leader's `party_id` (Party R5) | Designed |
+| Zones and hunt (11), Golden Boss (14), Arena (18) | Callers | Build the encounter (R3) | Designed |
 
 **Depended on by**: Zones and hunt trips (11, hard), Golden Boss and guild raid (14, hard), Offline progress (31, through 11), Realtime world view (38, through the caller's events), Endless Tower (19), Arena (18), Dev tooling and parity harness (43, vectors), CA/PA and traits (9) only if traits later modify combat stats (through Member model). The systems index lists Combat in the Depends On column of 11, 13, 14, 18, 19, 31 and 38, which matches. Party (13) lists Combat as a dependency; here Party is only a soft input, since Party reads Combat's behaviour (buffer bonus) to score compositions.
 
@@ -464,14 +477,17 @@ Combat owns no screen. It supplies data that other screens show:
 
 **Resolver and parity**
 - **AC-1 (R3, R13)** — **GIVEN** the hunt encounter values and the fixture of `tools/calibrate.py` (`kim_2`-style member at L10, monster `m_z01_d`, generator seeded as the reference test), **WHEN** `resolve` runs, **THEN** `won`, `duration_s` (bit pattern), `hp_after` and `dealt` equal `sim/hunt.py fight()` on the same inputs and generator.
-- **AC-2 (R3)** — **GIVEN** a 20-member guild in 4 parties and a Golden Boss row, **WHEN** `resolve` runs with the raid encounter values, **THEN** `won`, `duration_s`, deaths and `dealt` equal `sim/raid.py simulate_raid()` on the same inputs and generator.
+- **AC-2 (R3, D5)** — **GIVEN** a 20-member guild with buffers and tanks not first in roster order, and a Golden Boss row, **WHEN** `resolve` runs with the raid encounter values, `order` = the roster as passed to `simulate_raid()`, `groups` = `form_parties(roster)` and `start_hp = hp_max`, **THEN** `won`, `duration_s` (bit pattern), deaths, `monster_hp_left` and `dealt` equal `sim/raid.py simulate_raid()` on the same inputs and generator.
+- **AC-2b (F1)** — **GIVEN** L 1–200, `hp_mult` in {0.7, 1, 4, 12, 22} and n 1–40, **WHEN** `mon_hp` is computed with `hp_part_scale = 1 + 0.1 × n` and `hp_raid_scale = 6`, **THEN** it equals `monster_hp(L, hp_mult) × (1 + 0.1 × n) × 6` of `sim/raid.py` bit for bit in all 40,000 cases.
+- **AC-2c (R4a)** — **GIVEN** a member with `hp_milli = 523,999` and no hit taken, **THEN** the written-back `hp_milli` is 523,999; **GIVEN** a survivor with `hp_after = 0.0003`, **THEN** `hp_milli = 1`; **GIVEN** a member in `died`, **THEN** `hp_milli = 0`.
+- **AC-2d (R3)** — **GIVEN** a caller-built monster row not in `monsters.csv` and `start_hp` below `hp_max` for one member, **WHEN** `resolve` runs, **THEN** it uses the row's multipliers by F1 and that member starts at the given HP.
 - **AC-3 (R13)** — **GIVEN** a counting generator, **WHEN** a fight with 2 members, 1 healer heal, 5 member attacks and 3 single-target monster attacks against a party with a tank runs, **THEN** the draws are exactly: 2 start-up + 1 monster start-up + 5 spread + 3 × (1 tank check + one `choice`), in that order, and a heal draws nothing.
 - **AC-4 (R2)** — **GIVEN** the same encounter and the same `(domain, key)`, **WHEN** `resolve` runs twice, **THEN** the two results are identical. **WHEN** `encounter_ordinal` is +1, **THEN** the first spread draw differs.
 - **AC-5 (R14)** — **GIVEN** any fixture, **WHEN** it runs with `want_timeline` true and false, **THEN** every field except `timeline` is identical, and the timeline's last record's time equals `duration_s`.
 
 **Rules**
 - **AC-6 (R6)** — **GIVEN** a member and the monster whose next times are equal, **WHEN** the loop reaches them, **THEN** the member acts first. **GIVEN** two members with equal next times, **THEN** the earlier in combatant order acts first.
-- **AC-7 (R6)** — **GIVEN** a member with `dps` too low to kill before 600 s, **WHEN** the fight runs, **THEN** `won = false`, `reason = timeout`, and `600 < duration_s ≤ 600 + 1.0`.
+- **AC-7 (R6)** — **GIVEN** a member with `dps` too low to kill before 600 s, **WHEN** the fight runs, **THEN** `won = false`, `reason = timeout`, and `600 < duration_s ≤ 600 + 1.0`. **GIVEN** a fixture whose killing action falls in (600, 601], **THEN** `won = true` with `duration_s > 600`.
 - **AC-8 (R7, F6)** — **GIVEN** a `healer_support` member and an ally at 79% HP, **WHEN** the healer acts, **THEN** the ally gains `0.03 × hp_max` (capped at max), the monster's HP is unchanged, and no draw is used. **GIVEN** the ally at 80%, **THEN** the healer attacks.
 - **AC-9 (R8)** — **GIVEN** a party with one `moc_1` member, **WHEN** another member attacks with `u = 0.5`, **THEN** its hit equals the no-buffer hit × 1.08 (to 1 ulp), and a monster hit on any member equals the no-buffer hit × 0.90. **GIVEN** two buffers, **THEN** the factors are the same.
 - **AC-10 (R8)** — **GIVEN** the buffer dies mid-fight, **WHEN** a later member attack resolves, **THEN** it still includes `+buffer_atk`.
@@ -511,11 +527,12 @@ Combat owns no screen. It supplies data that other screens show:
 | OQ-5 | Fights are one monster, no positions. Do AoE, knockback and summons need multi-monster encounters (several monsters at once), or are they cosmetic in the simulation? Affects R15 and hunt pacing. | user + Zones and hunt (11) | Before S4 |
 | OQ-6 | The generation-cycle (tương sinh) group bonus and "element coverage" bonus of §6.12 are not built. Proposed: Party (13) computes them and passes a group `atk_bonus`/`dmg_red` addition into the encounter. | Party (13) | When Party is designed |
 | OQ-7 | Heals scale with the target's max HP, not the healer's power, so a low-level healer is as good as a high one. Intended? | user | Before S4 |
-| OQ-8 | Golden Boss recall waits for the current fight to finish (bounded by 600 s). Confirm the raid's gathering time covers it, or define an abort rule. | Golden Boss (14) | When raid is designed |
+| OQ-8 | Closed: Golden Boss R5 drops a group not arrived within `raid_gather_max_s`; no abort rule. | — | — |
 | OQ-9 | `GODOT_PORT.md` rule 2 says monster attacks draw a spread after the target; the code does not. Correct the port note to match R13. | user (file outside design/) | Next port-doc edit |
 | OQ-10 | Deterministic RNG AC-19 (mid-fight save) can be retired: fights are atomic (R2). The RNG owner should update its AC. | Deterministic RNG (2) | Next RNG revision |
-| PROVISIONAL-1 | **Member model (8)** — exposes per member `dps`, `hp_max`, `def`, current `hp`, as `Member.stats()` does today, with HP stored in Member model and written by the caller. | Member model (8) | When designed |
-| PROVISIONAL-2 | **Skills (21)** — owns the `effects` schema; Combat owns one operator per effect key; the action rule of R15 (highest ready slot, no draws); members get an MP pool. | Skills (21) | When designed |
-| PROVISIONAL-3 | **Party (13) / Zones and hunt (11)** — every hunting group, solo included, has a never-reused `party_id` and a saved `trip_ordinal`, giving the domain-1 key `[party_id, trip_ordinal, encounter_ordinal]`. | Party (13), Zones and hunt (11) | When designed |
-| PROVISIONAL-4 | **Golden Boss and guild raid (14)** — calls this resolver with the raid encounter values (R3), using its own RNG domain 6, and owns the raid values and contribution score built from `dealt`, `healed`, `taken`. | Golden Boss (14) | When designed |
-| PROVISIONAL-5 | **Zones and hunt trips (11)** — owns trip flow (flee, bag, gap, revive), kill XP, and the aggregate path, which calls this resolver on sampled trips; applies results at F8's deadline in realtime. | Zones and hunt (11) | When designed |
+| OQ-11 | Base MP maximum and MP regeneration per member for stage-2 casting (R15): Skills R2 has only `mp_max_pct`/`mp_regen` modifiers, and no GDD defines the base. Recommended: Member model adds `mp_max_milli` to the profile from a `sim_roles.csv` column; Combat owns regen at a flat `mp_regen_per_s` knob. | user + Member model (8) + Skills (21) | Before S4 |
+| PROVISIONAL-1 | Closed 2026-11-16: Member model R7 `profile` integers; conversion R4a. | — | — |
+| PROVISIONAL-2 | Closed 2026-11-16: Skills R2 kinds, one handler per kind (R15); MP base is OQ-11. | — | — |
+| PROVISIONAL-3 | Closed 2026-11-16: Zones R5 / Party R5 key leader `party_id` and `trips_led`. | — | — |
+| PROVISIONAL-4 | Closed 2026-11-16: Golden Boss R7–R8 build `groups`, `order`, `start_hp` and the raid values. | — | — |
+| PROVISIONAL-5 | Closed 2026-11-16: Zones R6, R15. | — | — |

@@ -1,0 +1,21 @@
+# JX1 Tycoon — dữ liệu, công cụ, lõi mô phỏng (tên tạm)
+
+```
+data/        CSV nguồn sự thật cho game (xem GDD mục 17)
+i18n/        tên hiển thị vi/en (id → tên)
+sim/         Simulation Core tham chiếu (Python)
+tests/       unit test lõi
+tools/       content_validator.py, balance_sim.py, calibrate.py, gen_a.py, gen_b.py, gen_c.py
+out/         báo cáo balance_sim (sinh ra)
+```
+Lệnh thường dùng:
+- Kiểm tra dữ liệu: `python3 -I tools/content_validator.py`
+- Chạy test: `python3 -m unittest discover -s tests`
+- Báo cáo cân bằng: `python3 tools/balance_sim.py` (≈30 giây; thêm `--quick` để chạy nhanh)
+- Quét tham số nhịp chiến đấu: `python3 tools/calibrate.py`
+
+`tools/gen_a.py` và `gen_b.py` SINH ra nhiều CSV (vật phẩm, công thức, bảng rơi, công trình, nhiệm vụ, skill Wave 2, quái vùng 12–15).
+**Chạy lại sẽ ghi đè**; nếu bạn đã chỉnh tay các CSV đó thì đừng chạy lại, hoặc chuyển sang chỉnh trực tiếp CSV và bỏ script.
+
+`gen_b.py` và `gen_c.py` idempotent (upsert). `gen_c.py` thêm nhịp XP, cường hoá (`enhance.csv`), tiệc/rượu, Bùa Hộ Cường, thuế/phí duy trì.
+Nếu chạy lại `gen_a.py`, chạy tiếp `gen_b.py` rồi `gen_c.py` theo thứ tự.

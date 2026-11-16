@@ -20,6 +20,8 @@ Localization is a presentation-side data service. It owns two kinds of catalogue
 - **Content names.** These already exist: `names_{vi,en}.csv` and `names_items_{vi,en}.csv`, with columns `id, name, short, desc`. They cover the 10 schools, 15 zones, bosses, 26 buildings, currencies, titles and about 1,080 items and materials (`JX1_Tycoon_GDD.md` §17.1).
 - **UI strings.** This catalogue is new: `ui_{vi,en}.csv` with columns `key, text, notes`. It holds every label, message, template and number-format token that is not the name of a content row.
 
+It also sets the text rules (R4, R8) for one content table it does not own: the **person-name lists** (`data/person_names.csv`, R3.4). These are proper nouns, not translated, so they are simulation content, not an `i18n/` catalogue.
+
 At runtime the service resolves the active locale (`vi` or `en`). Given a key or content ID and typed arguments, it returns finished text. Names and numbers are formatted for that locale, and the service falls back safely when a string is missing. At build time, the shared content validator enforces this system's rules: full coverage in both locales, matching placeholders, NFC Unicode and no key collisions.
 
 The system makes no gameplay decisions. Its contract to the rest of the game is: **no display string lives in code, content tables, the simulation, saves, events or leaderboard payloads.** All of these hold IDs. Text is produced only at draw time. That is why §16.1 can promise that renaming touches neither code nor saves, why the Event bus can say that a rename or a language switch cannot change history, and why a player can switch language mid-session and lose nothing.
@@ -55,7 +57,7 @@ What each promise asks of the design:
 
 ### Core Rules
 
-**R1 — Text exists only at draw time.** No player-facing string may appear in code, `data/` tables, simulation state, saves, events, the history log, command payloads, analytics payloads or leaderboard payloads. These hold IDs and numbers. The presentation layer asks Localization for text when it draws. This restates and owns the rule that Data layer R9 and Event bus R-fields rely on. *Exceptions:* proper nouns (R8) and LLM output caches (R10), each stored with a defined treatment.
+**R1 — Text exists only at draw time.** No player-facing string may appear in code, `data/` tables, simulation state, saves, events, the history log, command payloads, analytics payloads or leaderboard payloads. These hold IDs and numbers. The presentation layer asks Localization for text when it draws. This restates and owns the rule that Data layer R9 and Event bus R-fields rely on. *Exceptions:* proper nouns (R8: the person-name lists of R3.4, member names in the Member model's name record and in the `rename_member` payload, player-entered guild names) and LLM output caches (R10), each stored with a defined treatment. These are the only strings below the presentation line, and none of them is ever looked up or translated.
 
 **R2 — Supported locales.** The game ships two locales: `vi` (Vietnamese, the **source** language) and `en` (English, a translation of `vi`). A release build must have 100% coverage in both (F5). The locale list is data: adding a third locale means adding files, not code. Adding one is out of scope (Open Questions).
 
@@ -69,6 +71,11 @@ What each promise asks of the design:
    - Every key starts with `ui_`. The content and UI namespaces are one namespace (Data layer: global uniqueness), so the prefix prevents collisions.
    - A key is lowercase ASCII `[a-z0-9_]`, at most 48 characters, the same format as a content ID.
 3. One lookup serves both catalogues: `text(key_or_id, field = name, args = {})`.
+4. *Person-name lists* (not a catalogue; read by the simulation). `data/person_names.csv`, columns `id, uid, part, text`.
+   - `part` is `surname` or `given`. `text` is one name part, a proper noun in its Vietnamese form with diacritics, shown identically in both locales (R8). There is **one** file, not one per locale.
+   - It is a content table: the Data layer loader reads it, it is in the content hash, and `uid` follows Data layer R6. Recruitment (15) R6 draws from it in `uid` order. The loader still never reads `i18n/` (Data layer Dependencies).
+   - `id` follows the content ID rule (`[a-z0-9_]`, ≤ 48, globally unique, never `ui_`); it has no `names_*` row and is not in F5's `ContentIDs`.
+   - `text` obeys R4 (UTF-8, NFC, no surrounding whitespace, no control characters, no braces) and is 1–`member_name_max_len` code points. The validator checks this; each `part` must have at least one row (Recruitment: empty lists are a boot ERROR).
 
 **R4 — Text format rules** (validated, ERROR on breach):
 - UTF-8 without BOM.
@@ -97,11 +104,11 @@ What each promise asks of the design:
 **R7 — Locale selection.**
 1. **First launch.** The OS language is read once. If it starts with `vi`, the locale is `vi`. Otherwise it is `fallback_locale` (default `en`).
 2. **The player's choice** is made in Settings (45). It is stored as a device preference owned by Settings, **not** in the simulation save. It is never part of the content hash, RNG input, an event, or a leaderboard submission.
-3. **A switch is live.** No restart is needed. On the next frame, every visible string is re-requested. Cached rendered text (Chronicle pages, tooltips, notification text) is invalidated. No frame shows a mix of the two languages on one screen once the switch has been applied.
+3. **A switch is live.** No restart is needed. On the next frame, every visible string is re-requested. Cached rendered text (Chronicle pages, tooltips, notification text) is invalidated. From the next frame on, every **persistent** string on screen (labels, lists, banners, buttons, open panels) is in the new language. The one exception is a **transient pop** already in flight at the switch (a damage number, reason icon label or toast with a fixed lifetime of at most `view_icon_s`, Realtime world view R14): it finishes in the old language and is never re-spawned. No new text is created in the old language after the switch.
 
 **R8 — Proper nouns and player text are not translated.**
-- Member personal names are proper nouns. They are shown identically in both locales, from the Member model's name record (PROVISIONAL, see Open Questions).
-- Player-entered text, such as a guild name, is shown verbatim in every locale and never passed through lookup. It is normalised to NFC on entry, so R4 holds for everything drawn.
+- Member personal names are proper nouns. They are shown identically in both locales (with Vietnamese diacritics in `en` too), from the Member model's name record (Member model R3–R4). Generated names come from the R3.4 lists, which the validator keeps in NFC.
+- A member name is also **player-entered text**, because `rename_member` (Member model R4) replaces it. Both kinds of player text (guild names, member renames) follow one rule: the entry field's owner (Guild screens) normalises the text to NFC on the host **before** the command is issued, so the command payload, the name record and the save hold NFC only. The Member model owns the name record and its length and control-character checks; Localization owns the NFC rule. Player text is shown verbatim in every locale and never passed through lookup.
 - Content names (schools, zones, items) *are* translated. They come from R3.
 
 **R9 — Missing-string fallback.** A lookup never returns empty text. The chain is:
@@ -113,7 +120,7 @@ Each missing key is logged once per session. Steps 2 and 3 should be unreachable
 
 **R10 — Generated prose.**
 - *Chronicle and event feed.* Lines are rendered from `ui_chron_*` and `ui_feed_*` templates, filled from history-log records (IDs and numbers) at draw time. A language switch therefore re-tells all of history in the new language (Event bus: records carry IDs, never text).
-- *LLM text (AI text layer, 36).* Generated text is cached in the save with a locale tag (§9.2: results are cached into the save). It is shown only when its tag equals the active locale. Otherwise the template fallback for that feature is shown, and the AI text layer may regenerate the text in the background. Cached LLM text is never translated by this system.
+- *LLM text (AI text layer, 36).* Generated text is cached in the save with a locale tag (§9.2: results are cached into the save). It is shown only when its tag equals the active locale. Otherwise the template fallback for that feature is shown, and the AI text layer may regenerate the text in the background. Cached LLM text is never translated by this system. Cached text may contain member tokens `{m:<member_id>}` (AI text layer R8); at display each is replaced with that member's current name (R8 member rule, `ui_unknown_member` if absent). This is the only placeholder form outside R4, and it appears only in AI text cache entries, never in a catalogue.
 - *Push notifications (46).* Text is rendered in the active locale when the notification is scheduled. A locale switch re-schedules pending notifications with re-rendered text.
 
 **R11 — The core string set.** About 20–30 UI keys are **compiled into the build** for both locales, so they render when `i18n/` or `data/` cannot load. They cover the Data layer's data-damaged screen, the Sim core's fatal-failure screen, the loading screen and the language name of each locale. The same keys also exist in `ui_{loc}.csv`. The validator checks that the compiled set and the file set are byte-identical, so the two can never drift. The core set may not use `id` arguments, because content may be unavailable.
@@ -157,12 +164,13 @@ There is no transition that touches simulation state.
 | Data layer (3) | sibling | Shares the global ID namespace. The data layer never mints IDs starting `ui_` (PROVISIONAL). Its R9 points display text here | Data layer owns IDs; Localization owns text |
 | Dev tooling and parity harness (43) | tooling runs these rules | The shared validator runs R3–R6, R11, R15 and F5 checks over `i18n/` | Localization defines the rules; Dev tooling owns the validator program |
 | Event bus and history log (42) | bus → reader | History records (IDs, numbers) filled into `ui_chron_*` templates | Event bus owns records; Chronicle owner renders |
-| Member model (8) | Member → Localization | The member's proper-noun name record by member ID (R8) | Member model (PROVISIONAL) |
+| Member model (8) | Member → Localization | The member's proper-noun name record by member ID (R8); NFC rule for renames | Member model owns the record; Localization owns the NFC rule |
+| Recruitment (15) | reads content | Draws names from `data/person_names.csv` (R3.4) | Data layer loads; Localization sets its text rules |
 | Settings (45) | Settings → Localization | `set_locale(L)`; stores the preference | Settings owns the control and storage |
 | Realtime world view (38), Guild screens (39) | caller | `text(key, field, args)`; F4 fit | Localization |
 | Sim core (1), Data layer (3) failure screens | caller | Core string set keys (R11) | Localization; layout by Guild screens |
 | AI text layer (36) | both | Templates for fallback; locale tag on cached text (R10) | AI text layer owns generation |
-| Local push notifications (46) | caller | Render at schedule time; re-schedule on switch (R10) | Notifications (PROVISIONAL) |
+| Local push notifications (46) | caller | Render at schedule time; re-schedule on switch (R10) | Notifications |
 | Analytics (37) | reader | Active locale code as a dimension only; no text in events | Analytics |
 | In-app purchases (34) | none | Store prices are shown as the platform store formats them, never through F1/F2 | IAP |
 | Leaderboards (35) | none | Submissions carry IDs and numbers only; guild names are player text (R8) | Leaderboards |
@@ -209,14 +217,14 @@ The format_compact formula is defined as:
 | k | int | 3, 6, 9, 12 | calculated | magnitude chosen |
 | tenths | int64 | 10–92,233,720 | calculated | value in tenths of the unit, floored |
 
-**Output Range:** at most about 13 characters. The result **rounds down, never up**, so a player is never shown more gold than they hold. Below the threshold, F2 equals F1. At `k = 12` the integer part may exceed 999 (for example `9.223.372 NTỷ`), and it is grouped by F1.
+**Output Range:** at most about 14 characters (13 plus a minus sign). The result **rounds down, never up**, so a player is never shown more gold than they hold. Below the threshold, F2 equals F1. At `k = 12` the integer part may exceed 999 (for example `9.223.372 NTỷ`), and it is grouped by F1.
 **Example:** `12,345,678` gives `12,3 Tr` in vi and `12.3M` in en. `1,999,999` gives `1,9 Tr` and `1.9M`, never `2M`. `10,000` gives `10K` in both. `9,999` gives `9.999` and `9,999`. `5,000,000` gives `5 Tr` and `5M`, with no trailing `,0`.
 
 ### F3 — Plural category
 
 The plural_category formula is defined as:
 
-`plural_category(n, L) = (L = en and n = 1) ? "one" : "other"`
+`plural_category(n, L) = (L = en and |n| = 1) ? "one" : "other"`
 
 The variant key is then `<key>_<plural_category>`. If that row is missing, it falls back to `<key>_other`.
 
@@ -227,7 +235,7 @@ The variant key is then `<key>_<plural_category>`. If that row is missing, it fa
 | L | enum | `vi`, `en` | calculated | active locale |
 | plural rule per locale | rule | `en`: one/other; `vi`: other only | constant | CLDR cardinal rules for these two languages |
 
-**Output Range:** `one` or `other`. In `en`, `0`, `-1` and `2` give `other`, and only `1` gives `one`. In `vi` the result is always `other`.
+**Output Range:** `one` or `other`. In `en`, `0` and `2` give `other`, and `1` and `-1` give `one` (CLDR uses the absolute value). In `vi` the result is always `other`.
 **Example:** `ui_members_count` with `n = 1` gives `1 member` in en and `1 thành viên` in vi. With `n = 0` it gives `0 members` and `0 thành viên`.
 
 ### F4 — Fit to field
@@ -270,17 +278,18 @@ The gate passes when, for every shipped locale, `coverage(L) = 1` **and** placeh
 
 The format_duration formula is defined as:
 
-`format_duration(s, L)` splits `s ≥ 0` into days, hours, minutes and seconds. It renders the `duration_units_shown` largest units starting from the first non-zero one, flooring the remainder. Each unit is rendered through its plural key `ui_dur_<unit>_<cat>` (F3). The units are joined with `ui_dur_join[L]`.
+`format_duration(s, L)` splits `s ≥ 0` into days `d = floor(s/86400)`, hours `h`, minutes `m` and seconds `x` (each the floored remainder). Let `u0` be the largest unit whose value is non-zero (seconds when `s = 0`). The **window** is `u0` and the next `duration_units_shown − 1` smaller units (fewer if seconds is reached). Units below the window are floored away. Inside the window, a unit whose value is 0 is **omitted** (`3600` → `1 giờ`, never `1 giờ 0 phút`); `u0` itself is never omitted, so the output is never empty. Each shown unit is rendered through its plural key `ui_dur_<unit>_<cat>` with `cat = plural_category(value, L)` (F3), and the shown units are joined, largest first, with `ui_dur_join[L]`.
 
 **Variables:**
 | Variable | Type | Range | Source | Description |
 |----------|------|-------|--------|-------------|
 | s | int64 | ≥ 0 | calculated (caller, whole seconds) | duration |
 | duration_units_shown | int | 1–4 | data file (`config.csv` key `l10n_duration_units`, default 2) | units displayed |
-| ui_dur_* | string | — | data file | vi `{n} ngày / giờ / phút / giây`; en `{n}d / h / m / s` |
+| ui_dur_<unit>_<cat> | string | unit ∈ day, hour, min, sec; cat ∈ one, other | data file (`ui_{L}.csv`) | vi: `{n} ngày`, `{n} giờ`, `{n} phút`, `{n} giây` for both `_one` and `_other`. en: `{n}d`, `{n}h`, `{n}m`, `{n}s` for both `_one` and `_other` (abbreviations do not inflect; both rows exist per R6). `{n}` is a `count` argument |
+| ui_dur_join[L] | string | one character | data file (`ui_dur_join`) | a single space `" "` in both vi and en |
 
 **Output Range:** from `0 giây` / `0s` (for `s = 0`) up to the days count with grouping. A negative `s` is a caller bug: it is clamped to 0 and logged.
-**Example:** `s = 29,520` gives `8 giờ 12 phút` and `8h 12m`. `s = 90,061` gives `1 ngày 1 giờ` and `1d 1h` (the remaining 1 min 1 s is floored away). `s = 59` gives `59 giây` and `59s`.
+**Example** (`duration_units_shown = 2`): `s = 29,520` gives `8 giờ 12 phút` and `8h 12m`. `s = 90,061` gives `1 ngày 1 giờ` and `1d 1h` (the remaining 1 min 1 s is floored away). `s = 59` gives `59 giây` and `59s`. `s = 3,600` gives `1 giờ` and `1h` (zero minutes omitted). `s = 86,460` (1 d 0 h 1 min) gives `1 ngày` and `1d`: the window is days and hours, hours is 0 and omitted, and the minute is below the window. `s = 3,601` gives `1 giờ` and `1h` (the second is below the window).
 
 ## Edge Cases
 
@@ -313,7 +322,7 @@ The format_duration formula is defined as:
 |---|---|---|---|
 | Data layer and content pipeline (3) | Soft | Global ID namespace; set of content IDs needing names | Runtime lookup works without it (it only needs `i18n/`); the coverage check needs the ID set |
 | Dev tooling and parity harness (43) | Soft | The shared validator program executes this system's build-time rules | Without it, rules are unenforced, not broken |
-| Member model (8) | Soft | Proper-noun name per member ID (R8) | PROVISIONAL, not designed yet |
+| Member model (8) | Soft | Proper-noun name per member ID (R8); name record kept after departure (Member R3) | Designed (`member-model.md`) |
 
 **Downstream (depend on this system):**
 
@@ -327,6 +336,8 @@ The format_duration formula is defined as:
 | Schools (20), XP curve (22) | Soft | Names and refusal-reason strings by key; XP display uses F1 |
 | Event bus (42) / Chronicle owner | Soft | `ui_chron_*` templates rendered from records |
 | Local push notifications (46) | Soft | Render at schedule time, re-schedule on switch |
+| Recruitment (15) | Soft | R3.4 text rules for `data/person_names.csv` |
+| Member model (8) | Soft | R8 NFC rule for `rename_member` |
 | Analytics (37) | Soft | Locale code as a dimension |
 
 **Bidirectional check.**
@@ -334,7 +345,8 @@ The format_duration formula is defined as:
 - Event bus lists Localization as "none: records carry IDs". This is consistent, because the Chronicle owner, not the bus, calls Localization.
 - Schools and XP curve list Localization (consistent).
 - Sim core AC-35 is pending on this GDD. R11 supplies its strings.
-- Settings (45), 36, 38 and 39 list Localization in the systems index. Their GDDs do not exist yet.
+- Settings (45), AI text layer (36), Realtime world view (38), Guild screens (39) and Local push notifications (46) are designed and list Localization. Settings R2 stores the locale device-only (answers OQ-3). Realtime world view R14 matches R7.3's transient-pop exception.
+- Recruitment (15) and Member model (8) must point their name source at `data/person_names.csv` (R3.4) and Member R4 at R8's NFC rule (cross-cluster request, 2026-11-16).
 
 ## Tuning Knobs
 
@@ -411,15 +423,17 @@ Each criterion is marked **[Logic]** (automated unit test, BLOCKING), **[Integra
 **Formulas**
 - **AC-13 [Logic] (F1)** — `format_int` returns, for `0`, `1234567`, `-1200` and `−2^63` in vi and en, exactly: `0`/`0`, `1.234.567`/`1,234,567`, `-1.200`/`-1,200`, `-9.223.372.036.854.775.808`/`-9,223,372,036,854,775,808`.
 - **AC-14 [Logic] (F2)** — with `compact_threshold = 10,000`, `format_compact` returns: `9999` → `9.999`/`9,999`; `10000` → `10K`/`10K`; `1999999` → `1,9 Tr`/`1.9M`; `5000000` → `5 Tr`/`5M`; `12345678` → `12,3 Tr`/`12.3M`; `2^63−1` → `9.223.372 NTỷ`/`9,223,372T`.
-- **AC-15 [Logic] (F3)** — in `en`, `plural_category` returns `one` for 1, and `other` for 0, 2 and −1. In `vi` it returns `other` for all four.
-- **AC-16 [Logic] (F6)** — with `duration_units_shown = 2`, `format_duration` returns: `0` → `0 giây`/`0s`; `59` → `59 giây`/`59s`; `29520` → `8 giờ 12 phút`/`8h 12m`; `90061` → `1 ngày 1 giờ`/`1d 1h`; `-5` → `0 giây`, and an error is logged.
+- **AC-15 [Logic] (F3)** — in `en`, `plural_category` returns `one` for 1 and −1, and `other` for 0 and 2. In `vi` it returns `other` for all four.
+- **AC-16 [Logic] (F6)** — with `duration_units_shown = 2`, `format_duration` returns: `0` → `0 giây`/`0s`; `59` → `59 giây`/`59s`; `29520` → `8 giờ 12 phút`/`8h 12m`; `90061` → `1 ngày 1 giờ`/`1d 1h`; `3600` → `1 giờ`/`1h`; `3601` → `1 giờ`/`1h`; `86460` → `1 ngày`/`1d`; `-5` → `0 giây`, and an error is logged. With `duration_units_shown = 4`, `90061` → `1 ngày 1 giờ 1 phút 1 giây`/`1d 1h 1m 1s` and `86460` → `1 ngày 1 phút`/`1d 1m`.
 - **AC-17 [Logic] (F4)** — **GIVEN** a mock measure `w(s) = 10 px × len(s)` and the name `"Bronze Wall Sect"` with short `"Bronze Wall"`, **WHEN** fit is called at `W = 160`, `120` and `60`, **THEN** it returns `Bronze Wall Sect`, `Bronze Wall` and `Bronz…` (60 px − 10 px for `…` = 50 px, which fits 5 characters).
 
 **Locale selection and isolation (R1, R7)**
 - **AC-18 [Logic]** — **GIVEN** no stored preference, **WHEN** the OS language is `vi_VN`, `vi`, `en_US` or `fr_FR`, **THEN** the locale is `vi`, `vi`, `en` and `en` respectively.
 - **AC-19 [Integration]** — **GIVEN** a seeded run, **WHEN** it is simulated for 10,000 ticks once in `vi` and once in `en`, with a locale switch at tick 5,000 in a third run, **THEN** all three produce byte-identical saves, history logs and content hashes.
 - **AC-20 [Integration]** — **GIVEN** the save file, event payloads, command payloads and a leaderboard submission from AC-19, **WHEN** they are scanned for any `name` value from `i18n/` longer than 3 characters, **THEN** zero matches are found. Member proper names (R8) are excluded.
-- **AC-21 [UI]** — **GIVEN** the guild screen open in `vi`, **WHEN** the player selects English in Settings, **THEN** the next captured frame shows the screen fully in English, without a restart. Screenshots before and after are retained.
+- **AC-21 [UI]** — **GIVEN** the guild screen open in `vi`, **WHEN** the player selects English in Settings, **THEN** the next captured frame shows every persistent string in English, without a restart, and any transient pop still showing Vietnamese is gone within `view_icon_s` (R7.3). Screenshots before and after are retained.
+- **AC-28 [Logic] (R3.4)** — **GIVEN** a fixture where one `data/person_names.csv` row has NFD text, and another where no `given` row exists, **WHEN** the validator runs, **THEN** it exits 1 for each, naming the row or the empty part. **GIVEN** the committed file, the loader reads it and the content hash changes when one `text` cell changes.
+- **AC-29 [Logic] (R8)** — **GIVEN** the rename field receives `Hoà` in decomposed form (`o` + U+0300 + `a`…), **WHEN** the player confirms, **THEN** the issued `rename_member` payload and the stored name are the NFC form, byte-equal to the same name typed precomposed.
 - **AC-22 [Integration] (R10)** — **GIVEN** a Chronicle with at least 5 records, **WHEN** the locale is switched, **THEN** the same number of lines is shown, each naming the same IDs, in the new language.
 - **AC-23 [Logic] (R10)** — **GIVEN** a cached LLM line tagged `en`, **WHEN** the active locale is `vi`, **THEN** the template fallback is returned, not the cached line.
 
@@ -440,10 +454,10 @@ QA lens (`qa-lead`) applied in this conversation:
 
 | # | Question | Owner | Target |
 |---|---|---|---|
-| OQ-1 | **PROVISIONAL: Member model (8)** — assumes each member has a proper-noun personal name, stored as a name record by member ID and shown verbatim in both locales (R8). Are names generated from Vietnamese name parts, and should English show them with diacritics (assumed yes)? | Member model | When Member model GDD is written |
+| OQ-1 | ~~Member names~~ **RESOLVED 2026-11-16**: Member model R3–R4 keep a permanent name record; names come from `data/person_names.csv` (R3.4) and show with diacritics in both locales; renames are NFC on entry (R8). | — | — |
 | OQ-2 | **PROVISIONAL: Data layer (3)** — assumes content IDs never start with `ui_` (R3.2). The Data layer's ID format rule should state this; not edited here. | Data layer / consistency pass | Next `/consistency-check` |
-| OQ-3 | **PROVISIONAL: Settings (45)** — assumes Settings stores the locale as a device preference outside the sim save. Should it sync through Account and cloud save (7) so a new device opens in the player's language? | Settings | When Settings GDD is written |
-| OQ-4 | **PROVISIONAL: Local push notifications (46), AI text layer (36)** — assumes R10 (render at schedule time, re-schedule on switch; locale-tagged LLM cache). | Those systems | Full Vision |
+| OQ-3 | ~~Locale storage~~ **RESOLVED**: Settings R2 stores it device-only, never synced. | — | — |
+| OQ-4 | ~~R10 assumptions~~ **RESOLVED**: Local push R9 renders at schedule time and re-schedules on switch; AI text layer R8 uses the locale-tagged cache and `{m:id}` tokens (R10). | — | — |
 | OQ-5 | **Skill display names** (Data layer OQ-4, §17.2): skills have none yet, so F5's content set omits skills. Add skill IDs to the required set once named. 91 vi / 42 en item names are still placeholder `Bậc N` / `Tier N` names (§17.1). Should the validator WARN on placeholder names before release? | Localization + content (user) | Before Vertical Slice content lock |
 | OQ-6 | **Catalogue file layout vs §3.3.** §3.3 proposed `i18n/vi.csv, en.csv`. This GDD keeps the existing `names_*` files and adds `ui_*` (decision logged). Godot's CSV translation import expects a `keys,<locale>…` layout. Is a build-time converter or a custom loader used? | ADR (`/architecture-decision`) | Architecture phase |
 | OQ-7 | **Fonts.** Which pixel font has full Vietnamese coverage and readable stacked diacritics, and what is the minimum UI size? NOT SOURCEABLE from engine reference. | Art bible / engine spike | Spike (§12.1) |

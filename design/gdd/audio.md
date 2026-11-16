@@ -23,7 +23,7 @@ Audio is the Presentation-layer system that plays every sound effect and music t
 
 ## Player Fantasy
 
-**Direct: "I can hear my guild."** The player is in the Chợ Bang screen sorting a shipment. Behind it, a drum rolls twice and the music swells into the raid theme. They know without looking that the Golden Boss has been called and their members are turning home. Thirty seconds later they hear a roar, then a bright victory sting. They switch back to the town view in time to see the boss's loot landing in guild storage.
+**Direct: "I can hear my guild."** The player is in the Chợ Bang screen sorting a shipment. Behind it, a drum rolls twice. They know without looking that the Golden Boss has been called and their members are turning home. A few minutes later (1401 → 1402 is 120–240 s, Golden Boss R2/R5) they hear a roar and the music swells into the raid theme, then a bright victory sting. They switch back to the town view in time to see the boss's loot landing in guild storage.
 
 No pillars exist yet, so the fantasy is anchored to GDD §1 ("the guild loop … punctuated by an hourly Golden Boss that the whole guild fights together") and §6.5 (the boss "every 1 hour, the whole guild fights together" [CHỐT]).
 
@@ -43,7 +43,8 @@ Two framings were considered and not chosen: "a living martial-arts town" (ambie
 **R1: Three input channels, one mixer.**
 - **Event channel.** Once per render frame, Audio reads the event records delivered since the last frame from the Sim core facade (R15) and looks up each `type_id` in the cue table (R3). An event type with no row plays nothing.
 - **View channel.** Once per frame, Audio reads the world view's `view_context` (World view R13). From it Audio takes: the viewed location (Town, a Ground, or the Raid arena), which drives music (R8); `suppressed`, treated like catch-up (R6 step 1); and `played_records`, the Combat timeline records (World view R7, Combat record format: time, actor, kind, target, amount, died) whose playback time fell in this frame. Each record kind maps to a cue: attack → the hit cue of the actor's weapon family (or the monster attack cue), counter hit → `hit_counter`, heal → `heal`, died → `combat_death`, enrage → `gb_enrage`. Only what the view draws is heard, so hits are heard only for the location on screen (Zones V/A). `played_records` is part of World view R13 (OQ-2 resolved).
-- **UI channel.** `play_cue(cue_id, context)` is called by Guild screens (39), Settings (45) and the offline report. `context` carries an optional `member_id`, used only for collapse groups (R6). The world view never calls it (World view R1: "the view plays no sound itself").
+- **UI channel.** `play_cue(cue_id, context)` is called by Guild screens (39), Settings (45) and the offline report. `context` carries an optional `member_id`, which is the UI channel's collapse key (R6). The world view never calls it (World view R1: "the view plays no sound itself"). The UI cue names are Guild screens' (Visual/Audio item 4): `ui_tap`, `ui_confirm`, `ui_refused`, `ui_toast`, `ui_modal_open`, `ui_badge_new`; plus Settings' `ui_preview` and `sfx_preview` (R10) and the offline report's `report_open` and `report_row`. There is no close sound.
+- **One refusal, one cue.** A refused order is heard only as `ui_refused`, requested by Guild screens when it shows the refusal (it sees both the Command layer outcome 502 and host-side refusals such as `host_queue_full`). Event 502 `command_refused` has **no** event-channel row, so one refusal can never sound twice.
 - All three channels feed the same mixer (R4–R7). Audio exposes nothing else to the game.
 
 **R2: Audio is read-only and cosmetic.**
@@ -53,7 +54,7 @@ Two framings were considered and not chosen: "a living martial-arts town" (ambie
 - A headless run (balance simulator, tests, server replay; Sim core R16) has no Audio at all, and nothing in the simulation may depend on it.
 
 **R3: The cue table.** A cue is a named sound. Its row holds:
-- `cue_id`; `tier` (R4); `bus` (`sfx` or `ui`); `gain_db`; `cooldown_ms` and `frame_cap` (R6); `collapse_group` (R6, optional); `variants` (1–4 sound files, one picked at random); `pitch_jitter` (0 – 0.1); and for event cues, the `type_id` and an optional payload filter (one slot, one value, for example "reason = defeated").
+- `cue_id`; `tier` (R4); `priority` (an integer, R4; fixed per row); `bus` (`sfx` or `ui`); `gain_db`; `cooldown_ms` and `frame_cap` (R6); `collapse_group` and, for event rows, `collapse_slot` (R6, optional; required when `collapse_group` is set); `variants` (1–4 sound files, one picked at random); `pitch_jitter` (0 – 0.1); and for event cues, the `type_id` and an optional payload filter (one slot, one value, for example "reason = defeated").
 - The table is presentation data. It is a resource file under `assets/audio/`, not a Data layer content table. It is not part of the content hash, `content_validator`, or any leaderboard input (OQ-1).
 - A cue may name a `type_id` that is not registered in this build (for example a Wave 2 type). That row is inactive and logged once at boot, never an error, because presentation must not block a content wave.
 - The Wave 1 cue list is under Visual/Audio Requirements.
@@ -63,22 +64,32 @@ Two framings were considered and not chosen: "a living martial-arts town" (ambie
 | Tier | Priority | Meaning | Examples |
 |---|---|---|---|
 | T1 Alert | 100 | The player should act or look now | Golden Boss call (1401) and start (1402), boss enrage, member downed (1103), arrears started (2705) |
-| T2 Milestone | 80 – 89 | A rare, memorable moment | Ascension (2302, 89, the highest non-warning cue), rebirth (2301), raid victory/defeat stings, signature skill, hire, guild level-up, epic drop |
+| T2 Milestone | 80 – 89 (each row's own value, cue list) | A rare, memorable moment | Ascension (2302, 89, the highest non-warning cue), rebirth (2301, 87), horn (1407, 86), raid victory/defeat stings (85), guild level-up (84), hire (83), epic drop (82), signature skill and first zone entry (81), enhance milestone, school beat and level cap (80) |
 | T3 Feedback | 60 | A routine but meaningful result | Homecoming chime (2601), level-up (2201), craft done, enhance success/fail, injury, revival |
 | T4 Ambient | 40 | Texture; safe to drop | Combat hits, coin ticks, party formed, trip departure |
 
-The `ui` bus has its own small pool (R5) and never steals from or is stolen by `sfx`. The refusal cue (502) is on the `ui` bus at `gain_db = -6`, so it stays quieter than any combat or Golden Boss cue (Command layer, Visual/Audio). The four-tier order is the order sibling GDDs asked for: boss cues above member death, death above loot, epic chime above ambient but below boss warnings (Golden Boss, Zones, Items, Crafting, CA/PA, Rebirth).
+The `ui` bus has its own small pool (R5) and never steals from or is stolen by `sfx`. The refusal cue `ui_refused` is on the `ui` bus at `gain_db = -6`, so it stays quieter than any combat or Golden Boss cue (Command layer, Visual/Audio). It is still always heard over gameplay, because no `sfx` cue can take its voice and it has a timbre no other cue uses; that is how Guild screens' "audible over gameplay" is met without making it louder. The four-tier order is the order sibling GDDs asked for: boss cues above member death, death above loot, epic chime above ambient but below boss warnings (Golden Boss, Zones, Items, Crafting, CA/PA, Rebirth).
 
 **R5: Fixed voice pools.** Audio pre-creates its players once at boot (Godot audio reference, "Object Pooling for SFX"): `sfx_voices` (12) on the `sfx` bus, `ui_voices` (3) on the `ui` bus, and 2 music players for crossfading. It never creates a player at runtime. When a pool is full, a new cue may take a voice only by F2. Otherwise it is dropped. A dropped cue is never queued, except T2 cues (R7).
 
 **R6: Rate limits and collapse.** In order, for each requested cue:
-1. **Catch-up gate.** If the facade reports `catching_up` or `handoff_pending`, or `view_context.suppressed` is true, every event-channel and view-channel cue is dropped (Sim core R17, Event bus R12, World view R12). UI-channel cues still play, because the catching-up screen and the offline report make their own sounds (Offline progress, Visual/Audio).
-2. **Collapse.** All cues requested in one frame that share a `collapse_group` and the same `context` key are reduced to the one with the highest priority. Ties go to the first requested. This is how a hire plays the hire sting and not also the welcome chime (1502 and 801 for the same member), and an enhance milestone plays instead of the plain success cue (2403 over 2401).
+1. **Catch-up gate.** If the facade reports `catching_up` or `handoff_pending`, or `view_context.suppressed` is true, every event-channel and view-channel cue is dropped (Sim core R17, Event bus R12, World view R12). UI-channel cues still play. The UI channel only carries sounds of the player's own taps and of screens that exist for catch-up (the summary toast, the offline report). Callers do not request event-derived UI cues while catching up: Guild screens holds per-event toasts and badges (its R12) and requests one `ui_toast` for the summary. So taps, confirms and refusals still sound while catching up, and nothing else does.
+2. **Collapse.** All cues requested in one frame **on the same channel** that share a `collapse_group` and the same **context key** are reduced to the one with the highest `priority`. Ties go to the first requested. The context key is:
+   - event channel: the payload value in the row's `collapse_slot` (1–4 = `a`–`d`). Every row of one group names the slot that holds the same entity. Wave 1 groups: `join` = 1502 slot 2 (`member_id`) and 801 slot 1 (`member_id`); `enhance` = 2401, 2402 and 2403 slot 1 (`member_id`);
+   - UI channel: `context.member_id` (absent = one shared key);
+   - view channel: no groups in Wave 1.
+   There is no collapse across channels. This is how a hire plays the hire sting and not also the welcome chime (1502 and 801 for the same member), and an enhance milestone plays instead of the plain success cue (2403 over 2401). A row with `collapse_group` but no `collapse_slot` fails the build check (AC-16).
+   - **Member deaths are heard once.** A member's death is announced by the 1103 event cue (T1). A view-channel `died` record whose target is a **member** plays nothing; `combat_death` plays only for monster deaths. So the two channels never double one death.
 3. **Frame cap.** At most `frame_cap` instances of one cue start per frame (default 1). So a tick in which ten members level up plays one level-up cue, not ten.
 4. **Cooldown.** F3. A cue inside its cooldown is dropped.
 5. **Voice.** F2.
 
-**R7: T2 milestones are spaced, not dropped.** Up to `milestone_queue_cap` (3) T2 cues that pass R6 steps 1–4 wait in a queue. One starts every `milestone_gap_ms` (600 ms), so a guild level-up and a rebirth in the same tick are both heard. A fourth T2 cue while three are waiting replaces the lowest-priority waiting one if its priority is higher; otherwise it is dropped. T1 cues never wait: they play at once, by F2.
+**R7: T2 milestones are spaced, not dropped.** T2 cues that pass R6 steps 1–4 are handled in **descending `priority`** within a frame (ties in request order).
+1. A T2 cue starts at once (step 5, F2) if no cue is waiting and no T1 or T2 cue started in the last `milestone_gap_ms` (600 ms). Otherwise it joins the wait queue.
+2. The queue holds at most `milestone_queue_cap` (3) cues and drains in **descending priority** (ties: the earlier arrival first). The head starts `milestone_gap_ms` after the previous T1/T2 start; the next one `milestone_gap_ms` after that, and so on. So a guild level-up and a rebirth in the same tick are both heard.
+3. A T2 cue arriving while the queue is full replaces the lowest-priority waiting cue (the latest arrival among equals) if its priority is strictly higher; otherwise it is dropped.
+4. When a waiting cue's turn comes, only step 1 (catch-up gate) and step 5 (F2) are re-run. If either refuses it (catch-up began, or every voice is held by an equal or higher priority), it is **dropped, not re-queued**, and the next waiting cue keeps its own start time.
+T1 cues never wait: they play at once, by F2.
 
 **R8: Music.** One loop plays at a time, chosen by music state:
 
@@ -97,7 +108,7 @@ The `ui` bus has its own small pool (R5) and never steals from or is stolen by `
 
 **R9: App lifecycle and ads.**
 - When the app loses focus or goes to the background, Audio pauses every player. When it returns, it resumes them, fading the Master bus in over `resume_fade_ms` (300 ms). Event cues requested while paused are not played on return. The simulation may still have run (Offline progress), and its report has its own cues.
-- While a rewarded video plays (Ads 33 R8.3; the signal name is PROVISIONAL), game music and SFX are **muted, not paused**, and restored when the video closes (Ads, Visual/Audio). The video's own audio is the ad SDK's.
+- While a rewarded video plays, game music and SFX are **muted, not paused**: Audio mutes on Ads R12 `rewarded_state_changed` entering `Showing` and restores on leaving `Showing` (Ads R12, Visual/Audio). The video's own audio is the ad SDK's.
 
 **R10: Buses and volumes.**
 - Bus layout: `Master` → `Music`, `SFX`, `UI`.
@@ -124,12 +135,12 @@ Audio has a lifecycle state and the music state (R8).
 | From | To | Trigger |
 |---|---|---|
 | `Booting` | `Active` | Pools created, cue table loaded, bus volumes applied from Settings |
-| `Active` | `CatchingUp` | Facade reports `catching_up` or `handoff_pending` |
-| `CatchingUp` | `Active` | Both flags false; music state re-derived from `raid_active` and focus |
+| `Active` | `CatchingUp` | Facade reports `catching_up` or `handoff_pending`, or `view_context.suppressed` is true |
+| `CatchingUp` | `Active` | All three false; music state re-derived from `raid_active` and focus |
 | `Active` / `CatchingUp` | `Paused` | App focus lost |
 | `Paused` | previous state | Focus regained; Master fades in (R9) |
-| `Active` / `CatchingUp` | `AdMuted` | Rewarded video starts (Ads R8.3) |
-| `AdMuted` | previous state | Video closes; volumes restored from Settings F1 |
+| `Active` / `CatchingUp` | `AdMuted` | Ads R12 `rewarded_state_changed` enters `Showing` |
+| `AdMuted` | previous state | `rewarded_state_changed` leaves `Showing`; volumes restored from Settings F1 |
 
 The music state table is in R8. `raid_active` is set by 1402 and cleared by 1403, 1404 or the timeout, in every lifecycle state except `Booting`.
 
@@ -140,9 +151,9 @@ The music state table is in R8. `raid_active` is set by 1402 and cleared by 1403
 | Sim core (1) | core → audio | The read-only facade: P6 events, `catching_up`, `handoff_pending` (R15) | None | Sim core |
 | Event bus (42) | bus → audio (via the facade) | Event records `tick, type_id, a, b, c, d` (Event bus R2); type IDs from the registry blocks | None. Audio is not one of the 16 bus subscribers (Event bus R4), so it does not count against `max_event_subscribers` | Each emitter owns its type block; Audio owns the cue table |
 | Realtime world view (38) | view → audio | `view_context` (R13): location, camera, full sprites, `suppressed`, reduced motion; plus `played_records` | None | World view owns the context; Audio owns every cue and its mix (World view V/A item 7) |
-| Guild screens (39) | screens → audio | `play_cue` for UI taps, opens, refusals, confirmations, the offline report | None | Guild screens (PROVISIONAL) |
+| Guild screens (39) | screens → audio | `play_cue` with the six UI cue names (R1), incl. the single refusal cue `ui_refused`; the offline report | None | Guild screens owns when; Audio owns the cue and mix |
 | Settings (45) | both | `vol_*` and `mute_all` at boot and on change (`apply_volumes`) | The preview cues | Settings owns the controls, storage, defaults and F1; Audio owns the bus layout and F1 |
-| Ads (33) | ads → audio | Rewarded video started / closed (R8.3) | None | Ads (signal name PROVISIONAL) |
+| Ads (33) | ads → audio | R12 `rewarded_state_changed(state)`; mute while `Showing` | None | Ads |
 | Offline progress (31) | none directly | Its report sounds arrive through the UI channel | None | Offline progress owns when |
 | Deterministic RNG (2) | none | None. Audio must not use it | None | — |
 | Localization (4) | none | No voice-over | None | — |
@@ -181,6 +192,7 @@ The `voice_steal` formula is defined as:
 | ui_voices | int | 3 | data file (knob) | Pool size for `ui` |
 
 **Output Range:** a T1 cue always gets a voice unless all 12 voices are T1, which cannot happen in normal play: the T1 events are at most a few per minute. T4 cues never steal (nothing is lower).
+**Priority** is the row's own `priority` (R3): T1 = 100, T3 = 60, T4 = 40, and each T2 row its listed 80–89 value.
 **Example:** 12 voices are busy: 9 T4 hits and 3 T3 chimes. A 1103 member-downed cue (T1) steals the oldest T4 hit. A new T4 coin cue finds no lower voice and is dropped.
 **Why strict "greater than":** equal-tier stealing would make a busy fight cut its own hits off every frame (audible chatter). Dropping the newcomer costs nothing at T4.
 
@@ -246,8 +258,8 @@ The `music_duck_db` formula is defined as:
 | Event bus and history log (42) | Hard | Event record layout (R2) and the registered type IDs of each emitter's block | The cue table is keyed on these IDs |
 | Realtime world view (38) | Hard | `view_context` (World view R13) incl. `played_records` | Combat sounds must follow animation playback, not event ticks |
 | Settings (45) | Soft | `vol_*`, `mute_all`, F1 (`channel_gain_db`) | Without it Audio plays at full scale with no mute |
-| Guild screens (39) | Soft (PROVISIONAL) | `play_cue` for UI | Without it there are no UI sounds |
-| Ads (33) | Soft (PROVISIONAL) | Rewarded video started / closed | Without it game audio plays over the video |
+| Guild screens (39) | Soft | `play_cue` with its six UI cue names (Visual/Audio item 4) | Without it there are no UI sounds. Designed (`guild-screens.md`) |
+| Ads (33) | Soft | R12 `rewarded_state_changed` (`Showing`) | Without it game audio plays over the video. Designed (`ads.md`) |
 
 ### Downstream (systems that depend on this one)
 
@@ -258,7 +270,7 @@ The `music_duck_db` formula is defined as:
 
 **Emitting systems** whose events Audio maps (no dependency in either direction; they only own type IDs): Member model (800), CA/PA and traits (900), Hunt (1100), Party (1300), Golden Boss (1400), Recruitment (1500), Retention (1600), Endless Tower (1900, Full Vision), Schools (2000), Skills (2100), XP (2200), Rebirth (2300), Enhancement (2400), Items (2600), Gold economy (2700), Crafting (2800), Market (2900), Buildings (3000), Member state machine (4100), Command layer (500).
 
-**Bidirectional check.** The systems index row listed "Sim core, Realtime world view, Event bus"; Settings and Ads (both soft) were added to it. Settings (45), Ads (33) and the Realtime world view (38) already list Audio as a dependent (each marked PROVISIONAL because this GDD did not exist yet). Sim core and Event bus list Audio as a facade consumer.
+**Bidirectional check.** The systems index row listed "Sim core, Realtime world view, Event bus"; Settings and Ads (both soft) were added to it. Ads (33) R12 and the Realtime world view (38) list Audio and conform. Settings (45) and Guild screens (39) still mark Audio "PROVISIONAL / no GDD" (stale on their side; cross-cluster request 2026-11-16, with Guild screens V/A item 4 to match R6 step 1 and R1's single refusal path). Sim core and Event bus list Audio as a facade consumer.
 
 ## Tuning Knobs
 
@@ -294,25 +306,25 @@ All knobs live in the Audio resource files under `assets/audio/` (R3), not in th
 | 1401 `gb_announced` | Drum call | T1 | — | Golden Boss, Member state machine |
 | 1402 `gb_started` | Boss roar; music → `raid` | T1 | — | Golden Boss |
 | 1403 / 1404 `gb_won` / `gb_lost` | Victory / defeat sting | T2 (85) | — | Golden Boss |
-| 1407 `gb_summoned` | Horn | T2 | — | Golden Boss |
+| 1407 `gb_summoned` | Horn | T2 (86) | — | Golden Boss |
 | 1103 `hunt_member_downed` | Low short cue | T1 | 500 ms | Zones (above loot), Combat |
 | 2705 / 2706 arrears started / cleared | Warning / relief | T1 / T3 | — | Gold economy |
 | 2302 `member_ascended` | Unique sting | T2 (89) | — | Rebirth |
 | 2301 `member_reborn` | Bell strike + rising pad | T2 (87) | — | Rebirth |
-| 2102 `signature_skill_learned` | Glow chime | T2 | — | Skills |
-| 1502 `candidate_accepted` | Warm sting | T2 | group `join` (wins over 801) | Recruitment |
-| 801 `member_joined` | Welcome chime | T3 | group `join` | Member model |
-| 3004 `guild_level_up` | Larger beat | T2 | — | Buildings |
-| 2202 `member_level_capped` | Calm distinct cue | T2 | 1,000 ms | XP |
-| 2403 `enhance_milestone` | Large chime | T2 | group `enhance` | Enhancement |
-| 2001 / 2003 `school_joined` / `school_changed` | School beat | T2 | — | Schools |
+| 2102 `signature_skill_learned` | Glow chime | T2 (81) | — | Skills |
+| 1502 `candidate_accepted` | Warm sting | T2 (83) | group `join`, slot 2 (wins over 801) | Recruitment |
+| 801 `member_joined` | Welcome chime | T3 | group `join`, slot 1 | Member model |
+| 3004 `guild_level_up` | Larger beat | T2 (84) | — | Buildings |
+| 2202 `member_level_capped` | Calm distinct cue | T2 (80) | 1,000 ms | XP |
+| 2403 `enhance_milestone` | Large chime | T2 (80) | group `enhance`, slot 1 | Enhancement |
+| 2001 / 2003 `school_joined` / `school_changed` | School beat | T2 (80) | — | Schools |
 | 2602 `epic_loot` | Epic chime | T2 (82) | 1,000 ms | Items |
-| 1105 `zone_first_entered` | Discovery sting | T2 | — | Zones |
+| 1105 `zone_first_entered` | Discovery sting | T2 (81) | — | Zones |
 | 903 / 904 trait revealed / added | Discovery sting (low) | T3 | 1,000 ms | CA/PA |
 | 902 `pa_exact_revealed` | Soft chime | T3 | — | CA/PA |
 | 2601 `loot_handed_in` | **Homecoming chime** (signature) | T3 | 1,500 ms | Zones, Items |
 | 2201 `member_level_up` | Soft rise | T3 | 500 ms | XP |
-| 2401 / 2402 enhance success / failure | Rising chime / low thud (no glass break) | T3 | group `enhance` | Enhancement |
+| 2401 / 2402 enhance success / failure | Rising chime / low thud (no glass break) | T3 | group `enhance`, slot 1 | Enhancement |
 | 2803 `craft_order_done` | Short chime | T3 | 1,000 ms | Crafting |
 | 3003 `build_completed` | Short beat | T3 | — | Buildings |
 | 2907 trade order completed | Bright cue | T3 | — | Market |
@@ -328,12 +340,11 @@ All knobs live in the Audio resource files under `assets/audio/` (R3), not in th
 | 1301 `party_formed` | Short drum roll | T4 | 1,000 ms | Party |
 | 2901 / 2902 sales | Light coin | T4 | 2,000 ms | Market |
 | 2704 `upkeep_charged` | Muted drop | T4 | — | Gold economy |
-| 502 `command_refused` | Soft refusal (`ui`, −6 dB) | UI | 300 ms | Command layer |
 | 1902 / 1903 tower floor / run end (Full Vision) | Ascending chime, gong (boss floor), low drum (wipe) | T3 | — | Endless Tower |
 
-**View-channel and UI-channel cues.** Hit per weapon family (one per school's family; 5 in Wave 1, 10 by Wave 2), counter hit, heal, combat death (group `death` with 1103), monster attack, boss enrage sting (T1), UI tap / open / close / confirm, IAP success (quiet chime; refund has no sound), enhancement hammer per attempt, fund coin tick, offline report open (soft gong or wood block), report level-up row (capped at 3 per report by Offline progress).
+**View-channel and UI-channel cues.** Hit per weapon family (one per school's family; 5 in Wave 1, 10 by Wave 2), counter hit, heal, combat death (monsters only; a member's death is the 1103 cue, R6 step 2), monster attack, boss enrage sting (T1), the Guild screens UI cues `ui_tap`, `ui_confirm`, `ui_refused` (soft refusal, `ui` bus, −6 dB, 300 ms cooldown; the only refusal sound, R1), `ui_toast`, `ui_modal_open`, `ui_badge_new`, IAP success (quiet chime; refund has no sound), enhancement hammer per attempt, fund coin tick, offline report open (soft gong or wood block), report level-up row (capped at 3 per report by Offline progress).
 
-**No sound** for: 1408 `gb_member_rewarded`, 1405, 1406, 501 `command_applied`, 802 `member_removed`, routine 4101 trip transitions, Utility AI decisions, saves (Local save), and catch-up.
+**No sound** for: 1408 `gb_member_rewarded`, 1405, 1406, 501 `command_applied`, 502 `command_refused` (heard as `ui_refused` from Guild screens, R1), 802 `member_removed`, routine 4101 trip transitions, Utility AI decisions, saves (Local save), and catch-up.
 
 > 📌 **Asset Spec** — Visual/Audio requirements are defined. After the art bible is approved, run `/asset-spec system:audio` to produce per-asset descriptions and generation prompts from this section.
 
@@ -380,10 +391,10 @@ Story types: Logic criteria get automated tests with a fake facade, fake clock a
 - **AC-6 [Logic] (R4)**: **GIVEN** a full `sfx` pool of T4 voices, **WHEN** a `ui` cue is requested, **THEN** it plays on a `ui` voice and no `sfx` voice stops.
 - **AC-7 [Logic] (R5)**: **GIVEN** boot completed, **WHEN** 1,000 cues are requested over 100 frames, **THEN** the number of player objects is still `sfx_voices + ui_voices + 2`.
 - **AC-8 [Logic] (R6 step 1)**: **GIVEN** the facade reports `catching_up = true`, **WHEN** a batch with 1401, 2201 and 2601 arrives, **THEN** no event cue plays; **WHEN** `play_cue("report_open")` is called, **THEN** it plays. **GIVEN** `handoff_pending = true` and `catching_up = false`, **THEN** event cues are still dropped.
-- **AC-9 [Logic] (R6 step 2)**: **GIVEN** one frame with 1502 and 801 for the same `member_id`, **THEN** only the hire sting plays. **GIVEN** 1502 for member 7 and 801 for member 9, **THEN** both play.
+- **AC-9 [Logic] (R6 step 2)**: **GIVEN** one frame with 1502 (`b` = 7) and 801 (`a` = 7), **THEN** only the hire sting plays. **GIVEN** 1502 with `b` = 7 and 801 with `a` = 9, **THEN** both play. **GIVEN** 2401 and 2403 with `a` = 4 in one frame, **THEN** only the milestone chime plays. **GIVEN** `play_cue("ui_tap", {member_id: 3})` twice and `play_cue("ui_confirm", {member_id: 3})` in one frame with `ui_tap`/`ui_confirm` in one group, **THEN** one cue plays. **GIVEN** a frame with 1103 (`a` = 5) and a view `died` record for member 5, **THEN** only the 1103 cue plays; **GIVEN** a `died` record for a monster, **THEN** `combat_death` plays. **GIVEN** a cue table row with `collapse_group` and no `collapse_slot`, **THEN** the AC-16 build check fails.
 - **AC-10 [Logic] (R6 step 3)**: **GIVEN** a batch with ten 2201 events, **THEN** one level-up cue starts that frame.
 - **AC-11 [Logic] (F3)**: **GIVEN** the coin cue with `cooldown_ms = 2,000`, **WHEN** it is requested at 0, 1,999, 2,000 and 3,500 ms, **THEN** it starts at 0 and 2,000 only. **GIVEN** a cue never played, **THEN** its first request passes.
-- **AC-12 [Logic] (R7)**: **GIVEN** an empty voice situation, **WHEN** four T2 cues of priorities 80, 82, 85, 87 arrive in one frame, **THEN** the first plays at once, and the others start at +600 ms and +1,200 ms… with at most 3 waiting; a fourth waiting candidate of lower priority than all waiting ones is dropped, and one of higher priority replaces the lowest waiting.
+- **AC-12 [Logic] (R7)**: **GIVEN** free voices, an empty queue, no T1/T2 start in the last 600 ms and `milestone_gap_ms = 600`, **WHEN** four T2 cues of priorities 80, 82, 85, 87 arrive in that order in the frame at t = 0, **THEN** 87 starts at t = 0 and 85, 82, 80 wait and start at t = 600, 1,200 and 1,800 ms. **GIVEN** the same, plus a T2 of priority 79 at t = 100 ms, **THEN** it is dropped and the start times are unchanged. **GIVEN** instead a T2 of priority 84 at t = 100 ms, **THEN** 80 is dropped and 85, 84, 82 start at t = 600, 1,200 and 1,800 ms. **GIVEN** the 1,200 ms turn arrives while all 12 `sfx` voices are T1, **THEN** that cue is dropped (not re-queued) and the next waiting cue still starts at t = 1,800 ms. **GIVEN** catch-up begins at t = 1,000 ms, **THEN** the cues due at 1,200 and 1,800 ms are dropped.
 - **AC-13 [Logic] (R7, edge case)**: **GIVEN** a T1 and a T2 cue in one frame, **THEN** the T1 starts in that frame and the T2 starts `milestone_gap_ms` later.
 - **AC-14 [Logic] (R8)**: **GIVEN** music state `field`, **WHEN** 1402 arrives, **THEN** the state becomes `raid` with a 1,500 ms crossfade; **WHEN** a focus change to `town` is reported, **THEN** the track stays `raid`; **WHEN** 1403 arrives, **THEN** the victory sting plays and after it ends the state is `town`.
 - **AC-15 [Logic] (R8 catch-up, edge cases)**: **GIVEN** catch-up during which 1402 arrives and no result, **WHEN** catch-up ends, **THEN** the music switches to `raid` and no roar plays. **GIVEN** 1402 and 1403 both inside catch-up, **THEN** no sting plays and the music never changes. **GIVEN** `raid` with no result for 360 s of fake clock, **THEN** the state leaves `raid`. **GIVEN** 1404 with no prior 1402, **THEN** the defeat sting plays and the music state is unchanged.
@@ -391,7 +402,7 @@ Story types: Logic criteria get automated tests with a fake facade, fake clock a
 - **AC-17 [Logic] (F1)**: **GIVEN** `vol_master = 80`, `vol_sfx = 50`, `mute_all = false` and Settings' default k = 2, **WHEN** Audio applies volumes, **THEN** the Master bus is −3.88 dB (±0.01) and the SFX bus −12.04 dB (±0.01); **GIVEN** `vol_music = 0`, **THEN** the Music bus is muted, not set to a dB value; **GIVEN** `mute_all = true`, **THEN** Master is muted and the stored slider values passed in are unchanged.
 - **AC-18 [Logic] (F4)**: **GIVEN** music at 0 dB, **WHEN** a T1 cue starts at t = 0 and ends at t = 1,600 ms, **THEN** music gain is −8 dB at t = 80 ms, still −8 dB at 1,600 ms, and 0 dB at 2,200 ms; two overlapping T1 cues never take it below −8 dB.
 - **AC-19 [Config] (R12)**: **GIVEN** the shipped `assets/audio/` folder, **WHEN** the license check runs, **THEN** every audio file has a license log entry with source, terms date and tool; a file with none fails the check.
-- **AC-20 [Integration] (R9)**: **GIVEN** a device build playing the town theme, **WHEN** the app is sent to background and returned, **THEN** nothing plays while backgrounded and Master fades back in over about 300 ms; **WHEN** a test rewarded video shows, **THEN** game music and SFX are silent until it closes and then return at their slider levels `[PENDING: Ads 33 signal name]`.
+- **AC-20 [Integration] (R9)**: **GIVEN** a device build playing the town theme, **WHEN** the app is sent to background and returned, **THEN** nothing plays while backgrounded and Master fades back in over about 300 ms; **WHEN** a test rewarded video shows, **THEN** game music and SFX are silent while `rewarded_state_changed` is `Showing` and return at their slider levels when it leaves `Showing`.
 - **AC-21 [Integration] (R10)**: **GIVEN** the Settings screen, **WHEN** the Music slider is set to 0 and the app restarted, **THEN** music is muted on boot and the slider still reads 0.
 - **AC-22 [Integration] (R1, cross-system)**: **GIVEN** a live run where a party returns home in the town view, **THEN** the homecoming chime is heard within one frame of the settlement visual. **GIVEN** a Golden Boss slot, **THEN** the drum call, roar, raid music and a result sting are heard in that order; **GIVEN** the camera moves from the Town to a Ground, **THEN** the music crossfades to the field theme.
 - **AC-23 [Visual/Feel] (Game Feel, R11)**: **GIVEN** a 15-minute playtest of a 40-member guild on a min-spec phone, **THEN** the tester can name what each heard cue meant, rates no cue as annoying, and with sound muted reports no information missed. Evidence: playtest notes in `production/qa/evidence/`.
@@ -403,9 +414,9 @@ Story types: Logic criteria get automated tests with a fake facade, fake clock a
 - **OQ-2 RESOLVED (consistency-check 2026-11-16): World view R13 now carries `played_records`.** Original: Realtime world view (38) — `realtime-world-view.md` R13 exposes `view_context` (location, camera, full sprites, `suppressed`, reduced motion) but not the timeline records it played. This GDD assumes a `played_records` field is added to `view_context`, so combat hits sync to the picture without the view playing sound (its R1). Raise with the world view at its next revision; until then hits fall back to none (combat is still visible).
 - **OQ-3 (owner: audio-director, Wave 2 planning).** Per-element or per-zone field themes? Wave 1 ships one field theme to keep install size small; five element themes would cost about 7–9 MB more.
 - **OQ-4 (closed by `settings.md`).** Settings owns the sliders, `mute_all`, defaults and F1; this GDD conforms. Settings lists Audio as PROVISIONAL and should drop that tag at its next revision; it calls the setter `apply_volumes` here (name to confirm in the Settings ADR/story).
-- **OQ-5 PROVISIONAL: Ads (33)** — `ads.md` R8.3 requires muting during a rewarded video; the exact signal (name, and whether it fires on SDK open/close callbacks) is assumed, not specified.
+- **OQ-5 RESOLVED (2026-11-16):** Ads R12 `rewarded_state_changed`, mute while `Showing` (R9).
 - **OQ-6 (owner: godot-specialist, P1 spike).** Android/iOS audio focus (a call, another app's music) and its interaction with Godot 4.7's audio output: `NOT SOURCEABLE — not covered by docs/engine-reference/godot/modules/audio.md`. Also whether short SFX use WAV with QOA compression or OGG: not covered by the engine reference; decide in an ADR.
-- **OQ-7 PROVISIONAL: Guild screens (39)** — assumed to call `play_cue` for UI sounds and the offline report.
+- **OQ-7 RESOLVED (2026-11-16):** Guild screens calls `play_cue` with its six UI cue names (R1). Its V/A item 4 must be updated to R6 step 1 (taps/confirms/refusals sound during catch-up; held toasts do not) — cross-cluster request.
 - **OQ-8 (owner: producer).** Does the audio license log join `ART_LICENSE_LOG.md` (§12.4.1) as a section, or have its own file?
 - **OQ-9 (owner: game-designer).** Haptics (vibration on T1 cues) are out of scope; decide for the mobile polish pass whether they belong to Audio or Settings.
 - **OQ-10 PROVISIONAL: payload filters** — the cue list relies on payload fields owned by emitters (1104 reason, 4101 from/to state, 804 slot, 1501 shown stars for the rare-candidate variant, 2803 first-Ward milestone variant). Slot positions are taken from each emitter's GDD at implementation; any that the emitter does not carry fall back to the unfiltered cue.

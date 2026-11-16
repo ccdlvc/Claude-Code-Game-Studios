@@ -1,0 +1,28 @@
+# JX1 Tycoon — hướng dẫn cho Claude Code (harness)
+
+Game pixel tycoon (tên tạm, sẽ đổi). Nguồn sự thật: `docs/JX1_Tycoon_GDD.md` (v1.0). Đọc mục liên quan trước khi làm; các prompt triển khai nằm ở **mục 21** của GDD, kế hoạch mở rộng lõi ở **mục 20**.
+
+## Bố cục
+- `data/*.csv` — nội dung & tham số game (ID bất biến). `i18n/` — tên vi/en.
+- `sim/` — Simulation Core tham chiếu (Python, headless, tất định PCG32). Sẽ port sang GDScript theo `GODOT_PORT.md`.
+- `tests/` — unit test. `tools/` — validator, balance sim, calibrate, bộ sinh dữ liệu.
+- `out/` — báo cáo sinh ra (balance_report.md). `docs/` — GDD.
+- Chưa có thư mục Godot: tạo `godot/` khi làm Prompt P1/P2.
+
+## Lệnh (chạy ở thư mục gốc; không cần mạng, chỉ Python 3 chuẩn)
+- `make validate` = `python3 -I tools/content_validator.py` (phải 0 lỗi)
+- `make test` = `python3 -m unittest discover -s tests` (phải OK)
+- `make balance` (đầy đủ, ~2–3 phút) / `make balance-quick`
+- `make check` = validate + test (chạy trước khi báo xong mọi việc)
+
+## Quy tắc bất biến
+1. Data-driven: số liệu/nội dung ở CSV, không hard-code. Tên hiển thị ở i18n. Không dùng tên/art/dữ liệu Võ Lâm 1 hay Evil Hunter Tycoon.
+2. Core headless và tất định: chỉ dùng `sim/rng.py` (PCG32); không `random`, không thời gian thực, không UI/engine API.
+3. `gen_a.py` GHI ĐÈ nhiều CSV — đừng chạy lại. `gen_b.py`, `gen_c.py` idempotent. Thứ tự nếu bắt buộc: a → b → c.
+4. Đổi bảng số ⇒ chạy `make balance-quick` và nêu khác biệt; cập nhật GDD mục 4.3/18/19 nếu nhịp thay đổi.
+5. Thêm hành vi ⇒ thêm test; thêm cột/khoá CSV ⇒ cập nhật validator.
+6. Không đoán khi thiếu thông tin: ghi vào GDD mục 15 và hỏi người dùng. Trả lời tiếng Việt; code, comment, tên biến tiếng Anh.
+7. Hiệu năng mobile: chiến đấu hướng sự kiện, offline dùng `fast_forward` (chunk 2 giờ, 4 mẫu), không cấp phát trong vòng lặp nóng.
+
+## Quy trình làm việc
+Chọn prompt tương ứng ở GDD mục 21 (S1–S9 mở rộng lõi Python; P1–P7 Godot/services/phát hành) → làm → `make check` → báo: đã làm gì, test nào qua, rủi ro, bước tiếp theo. Việc tay (tra điều khoản AI art, nhãn hiệu, tài khoản) xem cuối mục 21.
