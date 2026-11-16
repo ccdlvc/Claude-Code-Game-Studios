@@ -1,0 +1,33 @@
+# Review Log — Account and Cloud Save
+
+## Review — 2026-11-16 — Verdict: NEEDS REVISION
+Review mode: lean · Workflow: full
+Scope signal: L (producer should verify before sprint planning)
+Specialists: none (lean mode; systems-designer, qa-lead and cross-GDD lenses applied in-session)
+Blocking items: 5 | Recommended: 8
+Summary: Structurally complete (8/8 sections) with a sound core: server-revision CAS instead of device clocks, an own-upload hash rule, a never-blocking offline-first stance, and registry values that agree (cloud_slot_count 1, cloud_upload_min_interval_s 300, cloud_divergence_warn_ticks 36,000, tick_rate 10). But it was written before Local save (6) existed and its save contract no longer matches the designed one; adopting a cloud copy re-dirties the device and makes devices ping-pong adopt offers; the headline Player Fantasy moment (new phone, sign in, guild loads) actually lands on a "two different guilds" conflict; and "the side you do not pick is kept" does not hold for Keep this device.
+Prior verdict resolved: First review
+Findings:
+- [BLOCKING] R5 / R8 / R9 / Interactions / Dependencies / OQ-1 vs local-save-and-migration.md R19: Local save now defines export_current() and import_blob(bytes) (one call that verifies, migrates, keeps slot0.replaced.sav and writes), not store_kept_backup(label) / write_current_from_blob / "save completed" signal; the guild key is save_id (also used by Leaderboards), not guild_uid; R19's summary is tick, guild level, member count, sum of member levels, total gold, not guild name, highest member level, rebirth count. Rebase R5/R8/R9/F3/F4 on R19 and pick one key name (IAP R4/R8 also say guild_uid)
+- [BLOCKING] R6 / R8 / F3 / AC-6: Local save R19 writes the imported blob as a new generation (max+1), so the stored bytes differ from the downloaded blob and the write is a completed save: local_dirty turns true, F3's hash rule no longer matches, the device classifies local_ahead and uploads a new rev, and every other device then sees cloud_ahead and an adopt offer for the guild it already has. Define that the adopt write sets base_rev/clears local_dirty (or compare by save_id+generation), and fix AC-6 "current save's bytes equal the downloaded blob"
+- [BLOCKING] R3 / F3 / AC-17 / Player Fantasy: a fresh install creates guild generation 1 at once (Local save R10) and a guest account that backs it up; tapping "Sign in with Google" on the new phone is a link attempt on an already-linked provider -> refused -> Switch account -> R7 case 5 with "These are two different guilds". F3's "no local save -> offer cloud copy" never applies, so AC-17 and the fantasy moment are unreachable as written. Specify the restore path (e.g. sign-in offered before guild creation, or a local guild below a progress threshold with no cloud history counts as no local save)
+- [BLOCKING] R4 / R7.4 / Edge Cases (two guilds) vs Player Fantasy "the side they do not pick is kept as a backup": on Keep this device the discarded cloud copy survives only as server history depth 1 (cloud_server_history_depth), overwritten by the next accepted upload ~5 min later; on Keep cloud the local copy is the single slot0.replaced.sav replaced by the next import. Either pin the discarded record (a kept record not rotated by uploads, or download it to a local kept file) or weaken the fantasy text
+- [BLOCKING] Registry values: line 180 "an 8-hour offline cap (§10)" vs registry offline_cap_free_h = 12 (one cap for every player); line 242 "24 h = the Premium offline cap, 864,000" vs offline_cap_premium_h status deprecated (Premium gets no extra offline time). Restate F1's rationale and F4's knob range against 12 h (432,000 ticks)
+- [RECOMMENDED] R13 / R7.6 / F1: after sign-out or deletion sync_meta is cleared and cloud_empty says "upload if a local save exists", but F1 requires local_dirty; state that a fresh sync_meta starts with local_dirty = true
+- [RECOMMENDED] R17 / OQ-9: superseded by in-app-purchases.md R8 (lenses live in guild storage; the server ledger plus store_grants_applied makes conflicts neither erase nor duplicate); restate R17 as citing IAP R8 and close OQ-9
+- [RECOMMENDED] Dependencies / OQ-7 / OQ-13 / Settings OQ-4: downstream GDDs 31, 32, 34, 35, 44, 45 now exist ("none has a GDD yet" is stale); Leaderboards R2/R10 answers guest ranking and rollback (OQ-7), Offline progress R3 consumes server_utc_estimate (OQ-13); answer Settings OQ-4 (keep the toggle in sync_meta?)
+- [RECOMMENDED] R10 / F7 / OQ-3: Local save F4 estimates a 0.3–4 MB file, above cloud_blob_max_bytes 2 MiB; a late-game guild would be refused backup. Agree a bound with Local save (6) before implementation
+- [RECOMMENDED] R9 vs Local save R15 / Edge Cases line 333: Local save locks the slot (no writes) on a 6001/6002 refusal; confirm import_blob of a newer blob is never attempted (7 checks schema/sim_version from metadata first) so the local lock is never triggered by a cloud blob
+- [RECOMMENDED] States and Transitions: Conflict has no row for Decide later (stays Conflict); Downloading on verification failure from Keep cloud returns to Idle rather than Conflict, leaving the next CAS failure to rediscover the conflict; Disabled -> Checking needs a row for "account becomes Guest/Linked while toggle on"
+- [RECOMMENDED] R5 summary vs F4: F4 reads summary.tick, which Local save R19 provides, but `base_tick` must be captured from the adopted/uploaded save's tick; say which write sets it (upload ack and adopt)
+- [RECOMMENDED] Acceptance Criteria: R13 guest sign-out warning, R16 toggle, R15 offline-disabled deletion and the already-linked-provider edge case have no Logic AC; AC-20 "frame budget" should name the ms value
+Reviewed-Content-Hash: design/gdd/account-and-cloud-save.md 1d2ee76c49defdfb7cc8aae45a3b1ecb6e18403c
+Reviewed-Content-Hash: design/registry/entities.yaml 92a96589851cdb25b077e3bec8bb06b07d713a74
+Reviewed-Content-Hash: .claude/skills/design-review/SKILL.md 4dcc8b81162613c757144532f1b72708ab3ba27f
+Reviewed-Content-Hash: design/gdd/local-save-and-migration.md d315aea1f283dd6599e7b70a5e4b22b69b422f79
+Reviewed-Content-Hash: design/gdd/in-app-purchases.md 8c7664cce9b979a920419c261cd24312c068259b
+Reviewed-Content-Hash: design/gdd/offline-progress.md 68851067bc795a92c8a94554ce6c49b900d31e9c
+Reviewed-Content-Hash: design/gdd/entitlement-and-feature-flags.md e988772d3723b158efa58a36578ef586a578bf44
+Reviewed-Content-Hash: design/gdd/leaderboards-and-anti-cheat.md 36124b2475f1e23092510a18f6f1bb4d92a0ae06
+Reviewed-Content-Hash: design/gdd/settings.md 93cdd10c26fda82cc58b2565597445ca9f32059d
+Reviewed-Content-Hash: design/gdd/onboarding-and-tutorial.md 2c478f90a0439cfd555335eb95dce08afe2f20ae

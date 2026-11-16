@@ -43,50 +43,50 @@ Two systems are deliberately thin so they cannot become god objects: the Sim cor
 |---|-------------|----------|----------|--------|------------|------------|
 | 1 | Sim core and tick loop | Core | MVP | Needs Revision | design/gdd/sim-core-and-tick-loop.md | RNG, Data layer |
 | 2 | Deterministic RNG (PCG32) | Core | MVP | Needs Revision | design/gdd/deterministic-rng.md | — |
-| 3 | Data layer and content pipeline | Core | MVP | Designed | design/gdd/data-layer-and-content-pipeline.md | — |
-| 4 | Localization (vi/en) | Core | Vertical Slice | Designed | design/gdd/localization.md | — |
-| 5 | Command layer (inferred) | Core | MVP | Designed | design/gdd/command-layer.md | Sim core, Data layer, Event bus |
-| 6 | Local save and migration | Persistence | MVP | Designed | design/gdd/local-save-and-migration.md | Sim core, Data layer, Event bus |
-| 7 | Account and cloud save | Persistence | Alpha | Designed | design/gdd/account-and-cloud-save.md | Local save |
-| 8 | Member model | Gameplay | MVP | Designed | design/gdd/member-model.md | Sim core, Schools, XP curve, Items and loot, Data layer, Event bus |
-| 9 | CA/PA and traits | Gameplay | MVP | Designed | design/gdd/ca-pa-and-traits.md | RNG, Member model, Data layer, XP curve, Skills, Items and loot, Sim core, Event bus |
-| 10 | Combat | Gameplay | MVP | Designed | design/gdd/combat.md | Sim core, RNG, Member model, Schools, Skills, Data layer |
-| 11 | Zones, grounds, monsters and hunt trips | Gameplay | MVP | Designed | design/gdd/zones-grounds-monsters-and-hunt-trips.md | RNG, Member model, Combat, Items and loot, Data layer, Sim core, Event bus, XP curve, Gold economy |
-| 12 | Utility AI | Gameplay | MVP | Designed | design/gdd/utility-ai.md | RNG, Member model, CA/PA and traits, Zones and hunt, Schools, Combat, Data layer, Gold economy, Items and loot |
-| 13 | Party | Gameplay | MVP | Designed | design/gdd/party.md | Member model, CA/PA and traits, Combat, Utility AI, Schools, Member state machine |
-| 14 | Golden Boss and guild raid | Gameplay | MVP | Designed | design/gdd/golden-boss-and-guild-raid.md | Sim core, RNG, Data layer, Command layer, Local save, Member model, Combat, Zones and hunt, Party, XP curve, Items and loot, Gold economy, Guild and buildings, Member state machine, Offline progress, Event bus, Market and trade orders (VS) |
-| 15 | Recruitment | Gameplay | MVP | Designed | design/gdd/recruitment.md | RNG, CA/PA and traits, Guild and buildings, Member model, Schools, Command layer, Sim core, Data layer, Event bus |
-| 16 | Retention, leaving and negotiation | Gameplay | Vertical Slice | Designed | design/gdd/retention-leaving-and-negotiation.md | RNG, Member model, CA/PA and traits, Party, Gold economy, Member state machine, Event bus, Command layer, Sim core, Data layer, Guild and buildings, Items and loot, Zones and hunt |
-| 17 | Jianghu free agents and NPC guilds | Gameplay | Full Vision | Designed | design/gdd/jianghu-free-agents-and-npc-guilds.md | RNG, Retention, Guild and buildings, Member model, Gold economy |
-| 18 | Arena | Gameplay | Full Vision | Designed | [arena.md](arena.md) | RNG, Combat, Jianghu free agents and NPC guilds, Guild and buildings, Member model, Items and loot, Member state machine |
-| 19 | Endless Tower | Gameplay | Full Vision | Designed | [endless-tower.md](endless-tower.md) | RNG, Combat, Zones and hunt, Items and loot, Guild and buildings, Member state machine, Rebirth |
-| 20 | Schools and school change | Progression | MVP | Designed | design/gdd/schools-and-school-change.md | Data layer, Sim core, Event bus |
-| 21 | Skills | Progression | MVP | Designed | design/gdd/skills.md | Data layer, Schools, XP curve, Sim core, Event bus |
-| 22 | XP and level pacing curve | Progression | MVP | Designed | design/gdd/xp-and-level-pacing-curve.md | Data layer, Sim core, Event bus |
-| 23 | Rebirth and Ascension | Progression | Alpha | Designed | design/gdd/rebirth-and-ascension.md | Member model, Skills, XP curve, Gold economy, Data layer, Items and loot, Guild and buildings, CA/PA and traits |
-| 24 | Equipment enhancement | Progression | Vertical Slice | Designed | design/gdd/equipment-enhancement.md | RNG, Member model, Items and loot, Gold economy, Guild and buildings, Data layer, Command layer, Event bus |
-| 25 | Quests and achievements | Progression | Vertical Slice | Designed | design/gdd/quests-and-achievements.md | RNG, Event bus, Zones and hunt, Golden Boss, Recruitment, Gold economy, Crafting, Guild and buildings, Data layer, Command layer, Items and loot, Market, Offline progress, Local save, Entitlement, Ads |
-| 26 | Items and loot tables | Economy | MVP | Designed | design/gdd/items-and-loot-tables.md | RNG, Data layer, Sim core, Event bus, Schools |
-| 27 | Gold economy (currencies, ledger, tax, upkeep, sinks) | Economy | MVP | Designed | design/gdd/gold-economy.md | Sim core, Data layer, Event bus, Member model, Items and loot |
-| 28 | Crafting and recipes | Economy | Vertical Slice | Designed | design/gdd/crafting-and-recipes.md | RNG, Items and loot, Gold economy, Guild and buildings, Data layer, Command layer, Sim core, Event bus, Local save |
-| 29 | Guild market and trade orders | Economy | Vertical Slice | Designed | design/gdd/guild-market-and-trade-orders.md | Items and loot, Gold economy, Guild and buildings, Member model, Utility AI, Command layer |
-| 30 | Guild and buildings | Economy | MVP | Designed | design/gdd/guild-and-buildings.md | Sim core, Data layer, Gold economy, Items and loot, Event bus, Command layer |
-| 31 | Offline progress | Gameplay | MVP | Designed | design/gdd/offline-progress.md | Sim core, RNG, Member model, Combat, Zones and hunt, Party, Golden Boss, Gold economy, Event bus, Utility AI, Items and loot, XP curve, Local save |
-| 32 | Entitlement and feature flags | Meta | Alpha | Designed | design/gdd/entitlement-and-feature-flags.md | Account and cloud save, In-app purchases, Command layer, Local save and migration, Data layer |
-| 33 | Ads (banner, rewarded, consent) | Meta | Alpha | Designed | design/gdd/ads.md | Entitlement, Quests, Command layer, Local save, Data layer, Localization |
-| 34 | In-app purchases (Premium, exact-PA items) | Meta | Alpha | Designed | design/gdd/in-app-purchases.md | Account and cloud save, Command layer, Items and loot, Local save, Data layer, Localization |
-| 35 | Leaderboards and anti-cheat | Meta | Alpha | Designed | design/gdd/leaderboards-and-anti-cheat.md | Sim core, RNG, Local save, Account and cloud save, CA/PA and traits, Data layer, Command layer, Offline progress |
-| 36 | AI text layer (optional local LLM) | Narrative | Full Vision | Designed | design/gdd/ai-text-layer.md | Localization, Member model, CA/PA and traits, Retention, Jianghu free agents, Event bus, Local save, Entitlement |
-| 37 | Analytics (inferred) | Meta | Alpha | Designed | design/gdd/analytics.md | Event bus, Settings |
-| 38 | Realtime world view | UI | MVP | Designed | design/gdd/realtime-world-view.md | Localization, Sim core, Command layer, Member model, Member state machine, Combat, Zones and hunt, Golden Boss, Event bus |
-| 39 | Guild screens (inferred) | UI | MVP | Designed | design/gdd/guild-screens.md | Localization, Command layer, Sim core, Member model, Member state machine, CA/PA and traits, Party, Utility AI, Combat, Recruitment, Retention, Enhancement, Gold economy, Market, Guild and buildings, Items and loot, Zones and hunt, Golden Boss, Offline progress, Local save, Data layer, Skills, Schools, XP curve, Rebirth, Crafting, In-app purchases, Realtime world view (provisional), Entitlement (provisional) |
-| 40 | Audio (inferred) | Audio | Alpha | Designed | design/gdd/audio.md | Sim core, Realtime world view, Event bus, Settings, Ads |
-| 41 | Member state machine | Gameplay | MVP | Designed | design/gdd/member-state-machine.md | Member model, Utility AI, Event bus, Sim core, Command layer, Zones and hunt, Party |
+| 3 | Data layer and content pipeline | Core | MVP | Needs Revision | design/gdd/data-layer-and-content-pipeline.md | — |
+| 4 | Localization (vi/en) | Core | Vertical Slice | Needs Revision | design/gdd/localization.md | — |
+| 5 | Command layer (inferred) | Core | MVP | Needs Revision | design/gdd/command-layer.md | Sim core, Data layer, Event bus |
+| 6 | Local save and migration | Persistence | MVP | Needs Revision | design/gdd/local-save-and-migration.md | Sim core, Data layer, Event bus |
+| 7 | Account and cloud save | Persistence | Alpha | Needs Revision | design/gdd/account-and-cloud-save.md | Local save |
+| 8 | Member model | Gameplay | MVP | Needs Revision | design/gdd/member-model.md | Sim core, Schools, XP curve, Items and loot, Data layer, Event bus |
+| 9 | CA/PA and traits | Gameplay | MVP | Needs Revision | design/gdd/ca-pa-and-traits.md | RNG, Member model, Data layer, XP curve, Skills, Items and loot, Sim core, Event bus |
+| 10 | Combat | Gameplay | MVP | Needs Revision | design/gdd/combat.md | Sim core, RNG, Member model, Schools, Skills, Data layer |
+| 11 | Zones, grounds, monsters and hunt trips | Gameplay | MVP | Needs Revision | design/gdd/zones-grounds-monsters-and-hunt-trips.md | RNG, Member model, Combat, Items and loot, Data layer, Sim core, Event bus, XP curve, Gold economy |
+| 12 | Utility AI | Gameplay | MVP | Needs Revision | design/gdd/utility-ai.md | RNG, Member model, CA/PA and traits, Zones and hunt, Schools, Combat, Data layer, Gold economy, Items and loot |
+| 13 | Party | Gameplay | MVP | Needs Revision | design/gdd/party.md | Member model, CA/PA and traits, Combat, Utility AI, Schools, Member state machine |
+| 14 | Golden Boss and guild raid | Gameplay | MVP | Needs Revision | design/gdd/golden-boss-and-guild-raid.md | Sim core, RNG, Data layer, Command layer, Local save, Member model, Combat, Zones and hunt, Party, XP curve, Items and loot, Gold economy, Guild and buildings, Member state machine, Offline progress, Event bus, Market and trade orders (VS) |
+| 15 | Recruitment | Gameplay | MVP | Needs Revision | design/gdd/recruitment.md | RNG, CA/PA and traits, Guild and buildings, Member model, Schools, Command layer, Sim core, Data layer, Event bus |
+| 16 | Retention, leaving and negotiation | Gameplay | Vertical Slice | Needs Revision | design/gdd/retention-leaving-and-negotiation.md | RNG, Member model, CA/PA and traits, Party, Gold economy, Member state machine, Event bus, Command layer, Sim core, Data layer, Guild and buildings, Items and loot, Zones and hunt |
+| 17 | Jianghu free agents and NPC guilds | Gameplay | Full Vision | Needs Revision | design/gdd/jianghu-free-agents-and-npc-guilds.md | RNG, Retention, Guild and buildings, Member model, Gold economy |
+| 18 | Arena | Gameplay | Full Vision | Needs Revision | [arena.md](arena.md) | RNG, Combat, Jianghu free agents and NPC guilds, Guild and buildings, Member model, Items and loot, Member state machine |
+| 19 | Endless Tower | Gameplay | Full Vision | Needs Revision | [endless-tower.md](endless-tower.md) | RNG, Combat, Zones and hunt, Items and loot, Guild and buildings, Member state machine, Rebirth |
+| 20 | Schools and school change | Progression | MVP | Needs Revision | design/gdd/schools-and-school-change.md | Data layer, Sim core, Event bus |
+| 21 | Skills | Progression | MVP | Needs Revision | design/gdd/skills.md | Data layer, Schools, XP curve, Sim core, Event bus |
+| 22 | XP and level pacing curve | Progression | MVP | Needs Revision | design/gdd/xp-and-level-pacing-curve.md | Data layer, Sim core, Event bus |
+| 23 | Rebirth and Ascension | Progression | Alpha | Needs Revision | design/gdd/rebirth-and-ascension.md | Member model, Skills, XP curve, Gold economy, Data layer, Items and loot, Guild and buildings, CA/PA and traits |
+| 24 | Equipment enhancement | Progression | Vertical Slice | Needs Revision | design/gdd/equipment-enhancement.md | RNG, Member model, Items and loot, Gold economy, Guild and buildings, Data layer, Command layer, Event bus |
+| 25 | Quests and achievements | Progression | Vertical Slice | Needs Revision | design/gdd/quests-and-achievements.md | RNG, Event bus, Zones and hunt, Golden Boss, Recruitment, Gold economy, Crafting, Guild and buildings, Data layer, Command layer, Items and loot, Market, Offline progress, Local save, Entitlement, Ads |
+| 26 | Items and loot tables | Economy | MVP | Needs Revision | design/gdd/items-and-loot-tables.md | RNG, Data layer, Sim core, Event bus, Schools |
+| 27 | Gold economy (currencies, ledger, tax, upkeep, sinks) | Economy | MVP | Needs Revision | design/gdd/gold-economy.md | Sim core, Data layer, Event bus, Member model, Items and loot |
+| 28 | Crafting and recipes | Economy | Vertical Slice | Needs Revision | design/gdd/crafting-and-recipes.md | RNG, Items and loot, Gold economy, Guild and buildings, Data layer, Command layer, Sim core, Event bus, Local save |
+| 29 | Guild market and trade orders | Economy | Vertical Slice | Needs Revision | design/gdd/guild-market-and-trade-orders.md | Items and loot, Gold economy, Guild and buildings, Member model, Utility AI, Command layer |
+| 30 | Guild and buildings | Economy | MVP | Needs Revision | design/gdd/guild-and-buildings.md | Sim core, Data layer, Gold economy, Items and loot, Event bus, Command layer |
+| 31 | Offline progress | Gameplay | MVP | Needs Revision | design/gdd/offline-progress.md | Sim core, RNG, Member model, Combat, Zones and hunt, Party, Golden Boss, Gold economy, Event bus, Utility AI, Items and loot, XP curve, Local save |
+| 32 | Entitlement and feature flags | Meta | Alpha | Needs Revision | design/gdd/entitlement-and-feature-flags.md | Account and cloud save, In-app purchases, Command layer, Local save and migration, Data layer |
+| 33 | Ads (banner, rewarded, consent) | Meta | Alpha | Needs Revision | design/gdd/ads.md | Entitlement, Quests, Command layer, Local save, Data layer, Localization |
+| 34 | In-app purchases (Premium, exact-PA items) | Meta | Alpha | Needs Revision | design/gdd/in-app-purchases.md | Account and cloud save, Command layer, Items and loot, Local save, Data layer, Localization |
+| 35 | Leaderboards and anti-cheat | Meta | Alpha | Needs Revision | design/gdd/leaderboards-and-anti-cheat.md | Sim core, RNG, Local save, Account and cloud save, CA/PA and traits, Data layer, Command layer, Offline progress |
+| 36 | AI text layer (optional local LLM) | Narrative | Full Vision | Needs Revision | design/gdd/ai-text-layer.md | Localization, Member model, CA/PA and traits, Retention, Jianghu free agents, Event bus, Local save, Entitlement |
+| 37 | Analytics (inferred) | Meta | Alpha | Needs Revision | design/gdd/analytics.md | Event bus, Settings |
+| 38 | Realtime world view | UI | MVP | Needs Revision | design/gdd/realtime-world-view.md | Localization, Sim core, Command layer, Member model, Member state machine, Combat, Zones and hunt, Golden Boss, Event bus |
+| 39 | Guild screens (inferred) | UI | MVP | Needs Revision | design/gdd/guild-screens.md | Localization, Command layer, Sim core, Member model, Member state machine, CA/PA and traits, Party, Utility AI, Combat, Recruitment, Retention, Enhancement, Gold economy, Market, Guild and buildings, Items and loot, Zones and hunt, Golden Boss, Offline progress, Local save, Data layer, Skills, Schools, XP curve, Rebirth, Crafting, In-app purchases, Realtime world view (provisional), Entitlement (provisional) |
+| 40 | Audio (inferred) | Audio | Alpha | Needs Revision | design/gdd/audio.md | Sim core, Realtime world view, Event bus, Settings, Ads |
+| 41 | Member state machine | Gameplay | MVP | Needs Revision | design/gdd/member-state-machine.md | Member model, Utility AI, Event bus, Sim core, Command layer, Zones and hunt, Party |
 | 42 | Event bus and history log | Core | MVP | Needs Revision | design/gdd/event-bus-and-history-log.md | Sim core, Data layer |
 | 43 | Dev tooling and parity harness | Core | MVP | Needs Revision | design/gdd/dev-tooling-and-parity-harness.md | RNG, Data layer |
-| 44 | Onboarding and tutorial (inferred) | Meta | Alpha | Designed | design/gdd/onboarding-and-tutorial.md | Zones and hunt, Guild screens, Event bus, Command layer, Recruitment, Party, Local save, Localization, Realtime world view |
-| 45 | Settings | Persistence | Vertical Slice | Designed | design/gdd/settings.md | Localization, Account and cloud save, Ads, Audio, Deterministic RNG, In-app purchases, Local push notifications |
-| 46 | Local push notifications (inferred) | Meta | Full Vision | Designed | design/gdd/local-push-notifications.md | Sim core, Golden Boss, Offline progress, Localization, Settings |
+| 44 | Onboarding and tutorial (inferred) | Meta | Alpha | Needs Revision | design/gdd/onboarding-and-tutorial.md | Zones and hunt, Guild screens, Event bus, Command layer, Recruitment, Party, Local save, Localization, Realtime world view |
+| 45 | Settings | Persistence | Vertical Slice | Needs Revision | design/gdd/settings.md | Localization, Account and cloud save, Ads, Audio, Deterministic RNG, In-app purchases, Local push notifications |
+| 46 | Local push notifications (inferred) | Meta | Full Vision | Needs Revision | design/gdd/local-push-notifications.md | Sim core, Golden Boss, Offline progress, Localization, Settings |
 
 **MVP scope cuts** (PR-SCOPE and CD-SYSTEMS, applied). In MVP:
 - Skills (21) covers only the 3 slice schools — `tho_1`, `moc_1`, `hoa_2` (user decision 2026-11-16, Skills OQ-1) — × 12 = 36 skills.
