@@ -1,0 +1,11 @@
+id,element,role,weapon,wave,buff_role,notes,armor_class
+kim_1,kim,tank,heavy_blade_armor,2,false,reflect;taunt,heavy
+kim_2,kim,melee_burst,sword,1,false,combo;crit,medium
+moc_1,moc,healer_support,staff,1,true,heal;party_buff;cleanse,light
+moc_2,moc,dot_debuff,hidden_weapon_poison,2,false,poison_stack;def_shred,light
+thuy_1,thuy,control_caster,zither_fan,1,false,slow;stun;aoe,light
+thuy_2,thuy,buff_mp_support,thin_blade_whisk,2,true,party_buff;mp_restore,light
+hoa_1,hoa,melee_dps,fist_staff,2,false,burst;burn,medium
+hoa_2,hoa,ranged_dps,fire_crossbow,1,false,range;dot,medium
+tho_1,tho,tank_guardian,shield_spear,1,false,damage_reduction;guard,heavy
+tho_2,tho,control_summoner,formation_trap,2,false,trap;summon;stun,medium

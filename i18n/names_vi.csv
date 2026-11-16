@@ -1,0 +1,77 @@
+id,name,short,desc
+kim_1,Đồng Thành Phái,Đồng Thành,Phái giáp trụ lấy đồng làm thành luỹ; chuyên gánh sát thương và khiêu khích địch.
+kim_2,Lạc Kiếm Môn,Lạc Kiếm,Phái kiếm khách nhanh và hiểm; dồn sát thương bùng nổ vào một mục tiêu.
+moc_1,Thảo Linh Cốc,Thảo Linh,Phái hồi máu và hỗ trợ; dùng thảo dược và linh khí buff cả đội.
+moc_2,Chướng Lâm Trại,Chướng Lâm,Phái dùng độc và chướng khí; bào mòn máu và phòng thủ kẻ địch.
+thuy_1,Triều Âm Các,Triều Âm,Phái khống chế dùng tiếng đàn như sóng triều; làm chậm và đẩy lùi.
+thuy_2,Sương Nguyệt Am,Sương Nguyệt,Phái hỗ trợ nội lực; buff đội hình và hồi nội lực.
+hoa_1,Hoả Quyền Đường,Hoả Quyền,Phái cận chiến quyền cước bốc lửa; sát thương bùng nổ và thiêu đốt.
+hoa_2,Liên Nỏ Doanh,Liên Nỏ,Phái xạ thủ dùng nỏ liên châu; sát thương tầm xa theo thời gian.
+tho_1,Hộ Đê Môn,Hộ Đê,Phái hộ vệ lấy đê làm gương; giảm sát thương và che chắn đồng đội.
+tho_2,Cổ Trận Môn,Cổ Trận,Phái bày trận và đặt bẫy; khống chế và triệu hồi.
+zone_01,Lạc Điền,Lạc Điền,Đồng ruộng thuở Văn Lang; thú rừng lảng vảng quanh làng.
+zone_02,Đông Sơn Đồng Khoáng,Đông Sơn,Mỏ đồng nơi tiếng trống đồng vọng lại; rắn và sâu mỏ làm tổ.
+zone_03,Đầm Dạ Trạch,Dạ Trạch,Đầm lầy huyền thoại; thuỷ quái ẩn dưới lau sậy.
+zone_04,Cồn Cát Sa Huỳnh,Sa Huỳnh,Cồn cát nắng cháy ven biển; bọ cạp và hoả linh.
+zone_05,Đất Đỏ Cao Nguyên,Đất Đỏ,Cao nguyên đất đỏ; thú to khoẻ và đá sống.
+zone_06,Ải Chi Lăng,Chi Lăng,Con đường hiểm giữa núi; hổ báo và thú cắn ở trong rừng.
+zone_07,Cửa Sông Bạch Đằng,Bạch Đằng,Cửa sông nhiều bãi cọc; thuỷ quái và cá sấu.
+zone_08,Động Hoả Sơn,Hoả Sơn,Hang dung nham; quái lửa và quái đá.
+zone_09,Hoàng Liên Vân Đỉnh,Vân Đỉnh,Đỉnh núi mây mù sương giá; thú núi cao.
+zone_10,Cổ Loa Phế Thành,Cổ Loa,Thành cổ hoang tàn; tinh quái và linh vật.
+zone_11,Long Động Hạ Long,Long Động,Hang rồng trong truyền thuyết; thuồng luồng canh giữ.
+zone_12,Trường Sơn Nguyên Lâm,Nguyên Lâm,Rừng nguyên sinh rậm rạp; thú dữ và cây thành tinh.
+zone_13,Đông Hải Thâm Uyên,Thâm Uyên,Vực biển sâu tối tăm; thuỷ quái khổng lồ.
+zone_14,Phế Cung Cổ Đô,Phế Cung,Cung điện hoang phế của kinh đô cũ; tượng đá hoá thú.
+zone_15,Cõi Truyền Thuyết,Truyền Thuyết,Cõi huyền thoại nơi các linh vật cổ xưa ngự trị.
+m_z01_boss,Hổ Chúa Ba Mươi,Hổ Chúa,Chúa sơn lâm của vùng ruộng rừng.
+m_z02_boss,Kim Xà Đồng Mỏ,Kim Xà,Rắn khổng lồ vàng đồng trong mỏ.
+m_z03_boss,Ngư Tinh,Ngư Tinh,Cá tinh sống ngàn năm dưới đầm.
+m_z04_boss,Hoả Hạt Vương,Hạt Vương,Bọ cạp khổng lồ trên cồn cát.
+m_z05_boss,Cửu Ngà Tượng Vương,Cửu Ngà,Voi chín ngà khổng lồ.
+m_z06_boss,Hồ Tinh Chín Đuôi,Hồ Tinh,Hồ ly chín đuôi trong rừng sâu.
+m_z07_boss,Giao Long Bạch Đằng,Giao Long,Giao long khuấy sóng cửa sông.
+m_z08_boss,Hoả Phụng Hoàng,Hoả Phụng,Chim lửa trong hang dung nham.
+m_z09_boss,Mãng Xà Vân Sương,Mãng Xà,Mãng xà ẩn trong sương mù.
+m_z10_boss,Bạch Kê Tinh,Bạch Kê,Gà trắng thành tinh trong thành cổ.
+m_z11_boss,Thuồng Luồng Chúa,Thuồng Luồng,Chúa thuồng luồng canh hang rồng.
+bld_hq,Tổng Đàn,Tổng Đàn,Trụ sở bang; mở khoá công trình và nâng cấp.
+bld_trade,Thương Hội,Thương Hội,Đặt đơn vật liệu cho thành viên đi săn.
+bld_bounty,Cáo Thị Đường,Cáo Thị,Nơi treo nhiệm vụ săn quái.
+bld_restaurant,Thiện Đường,Thiện Đường,Bán đồ ăn hồi độ no.
+bld_tavern,Tửu Quán,Tửu Quán,Bán rượu; tăng tâm trạng.
+bld_inn,Khách Điếm,Khách Điếm,Nghỉ ngơi hồi thể lực.
+bld_infirmary,Y Quán,Y Quán,Chữa thương cho thành viên.
+bld_training,Luyện Võ Đường,Luyện Võ,Thành viên rảnh luyện thêm kinh nghiệm.
+bld_smith,Thiết Tượng Phô,Lò Rèn,Chế vũ khí và giáp.
+bld_jeweler,Châu Bảo Các,Châu Bảo,Chế phụ kiện.
+bld_alchemy,Dược Phòng,Dược Phòng,Chế thuốc.
+bld_market,Chợ Bang,Chợ Bang,"Mua bán vũ khí, giáp, phụ kiện, thuốc."
+bld_academy_skill,Tàng Kinh Các,Tàng Kinh,Học kỹ năng và đổi phái.
+bld_academy_trait,Ngộ Đạo Đài,Ngộ Đạo,Học và khai mở trait.
+bld_enhance,Luyện Khí Đài,Luyện Khí,Cường hoá trang bị.
+bld_housing,Trú Xá,Trú Xá,Tăng sức chứa thành viên.
+bld_bank,Tiền Trang,Tiền Trang,Sinh lãi cho quỹ bang.
+bld_buff_courage,Chiến Công Bi,Công Bi,Buff chiến đấu toàn bang.
+bld_buff_life,Linh Tuyền,Linh Tuyền,Buff máu và hồi phục.
+bld_buff_wisdom,Tàng Thư Lâu,Tàng Thư,Buff kinh nghiệm và ngộ tính.
+bld_shrine,Linh Miếu,Linh Miếu,Hồi sinh và chuyển sinh.
+bld_tower,Vô Tận Tháp,Vô Tận Tháp,Tháp thử thách vô hạn tầng.
+bld_arena,Lôi Đài,Lôi Đài,Đấu với các bang NPC.
+bld_scout,Thám Tử Quán,Thám Tử,Đánh giá PA và tìm ứng viên.
+bld_stable,Mã Phòng,Mã Phòng,Nuôi ngựa.
+bld_chronicle,Sử Ký Quán,Sử Ký,Nhật ký giang hồ của bang.
+item_gold,Quan,Quan,Tiền tệ cơ bản.
+item_gem,Linh Bảo,Linh Bảo,Tiền cao cấp lấy từ nhiệm vụ và thành tựu.
+item_rebirth_pill,Chuyển Sinh Đan,Sinh Đan,Vật phẩm dùng để chuyển sinh.
+item_summon_horn,Triệu Tập Lệnh,Triệu Tập,Gọi boss chủ động.
+item_recruit_token,Chiêu Hiền Lệnh,Chiêu Hiền,Mời ứng viên hiếm.
+item_pa_lens,Thiên Cơ Kính,Cơ Kính,Mở PA chính xác của một thành viên.
+item_pa_eye,Thiên Nhãn,Thiên Nhãn,Mở PA chính xác của mọi thành viên.
+item_banner,Lệnh Kỳ,Lệnh Kỳ,Cờ lệnh buff tạm cho đội thiếu thành viên hỗ trợ.
+title_leader,Bang Chủ,Bang Chủ,Người đứng đầu bang.
+title_elder,Trưởng Lão,Trưởng Lão,Thành viên đã Phi Thăng; cho buff toàn bang.
+m_z12_boss,Bạch Hổ Nghìn Năm,Bạch Hổ,Con hổ trắng sống nghìn năm trong rừng nguyên sinh.
+m_z13_boss,Cự Tuộc Đông Hải,Cự Tuộc,Con mực khổng lồ dưới vực biển sâu.
+m_z14_boss,Nghê Đá Cổ Đô,Nghê Đá,Tượng nghê bằng đá hoá thú canh giữ cung điện.
+m_z15_boss,Cổ Long Chúa,Cổ Long,Con rồng cổ trong cõi truyền thuyết.

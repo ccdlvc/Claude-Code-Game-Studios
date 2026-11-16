@@ -1,0 +1,2825 @@
+# Game World Entity Registry
+#
+# PURPOSE: Single source of truth for all named game-world facts that appear
+# in more than one document. Skills check this before writing new content to
+# detect cross-doc inconsistencies at authoring time.
+#
+# RULES:
+#   - Only register facts that cross system boundaries. Internal-only facts
+#     (a formula used in one GDD only) do NOT need to be registered.
+#   - Never delete entries — set status: deprecated instead.
+#   - When a value changes: update the value, set revised: to today's date,
+#     and add a comment with the old value and which GDD changed it.
+#   - source: is the authoritative GDD — the one that "owns" this fact.
+#     Other GDDs that reference it list themselves in referenced_by.
+#   - When a new GDD references an existing entry, append its path to
+#     referenced_by. Do not create a duplicate entry.
+#
+# WRITTEN BY: /design-system (Phase 5 — after GDD sections are approved)
+#             /consistency-check (when resolving conflicts)
+#             economy-designer, systems-designer (new cross-system entries,
+#               after asking)
+# READ BY:    /design-system (Phase 2 — before authoring begins, and after
+#               Section C/D writes to conflict-check new entities/formulas)
+#             /consistency-check (primary input — grep-first, GDD-second)
+#             /review-all-gdds (Phase 1 — baseline for Phase 2 checks)
+#             /design-review (Phase 1 — cross-doc facts, in place of sibling GDDs)
+#             /content-audit (Step 2 — planned named-content count)
+#             /balance-check (Phase 3 — intended constant/formula values)
+#             /propagate-design-change (Step 3 — downstream GDD impact via referenced_by)
+#             /asset-spec (named entities to write specs for)
+#             economy-designer, systems-designer (before authoring items,
+#               loot tables and formulas)
+#
+# SEARCH PATTERNS (for skills using Grep):
+#   All entity names:        Grep pattern="^  - name:" path="design/registry/entities.yaml"
+#   Specific entity:         Grep pattern="  - name: goblin" path="design/registry/entities.yaml"
+#   All items:               Grep pattern="^  - name:" path="design/registry/entities.yaml" (items section)
+#   What combat.md owns:     Grep pattern="source: design/gdd/combat.md"
+#   What inventory.md uses:  Grep pattern="design/gdd/inventory.md" -B 8
+#                            (referenced_by is a block list, so match the
+#                            path; referenced_by.*inventory never matches)
+#   All gold values:          Grep pattern="value_gold:"
+#   Deprecated entries:      Grep pattern="status: deprecated"
+#
+# FORMAT: YAML. Consistent indentation is critical for grep reliability.
+#   Sections: entities | items | formulas | constants
+#   Each entry: name, status, source, referenced_by[], attributes{}, added, revised
+#
+# LAYOUT: the one shape .claude/scripts/registry.sh reads. Each section is a
+#   key at column 0 holding a block list, or [] while it is empty. Each entry
+#   starts "- name: <name>" with the dash at column 2 (or 0, the same for every
+#   entry of a section); its fields sit two columns past the dash, and a deeper
+#   line belongs to the field above it. Quote a value that holds ": ". A line
+#   in any other shape is reported as unsupported layout, with its number.
+
+version: 1
+last_updated: "2026-11-16"
+
+# ─── ENTITIES ────────────────────────────────────────────────────────────────
+# Named game-world objects: enemies, NPCs, characters, factions, bosses.
+# Register an entity here when it appears in more than one GDD — e.g., an
+# enemy defined in combat.md that also drops items listed in inventory.md.
+#
+# Required fields: name, status, source, referenced_by, added
+# Attribute fields: any key stats that could appear in another GDD
+#   (health, damage, drops, faction, etc.)
+
+entities: []
+
+# Example (remove when first real entry is added):
+#
+# entities:
+#   - name: goblin
+#     status: active              # active | deprecated
+#     source: design/gdd/combat.md
+#     referenced_by:
+#       - design/gdd/combat.md
+#       - design/gdd/inventory.md
+#     health: 40
+#     damage: 8
+#     drops:
+#       - item: goblin_arm        # must match an entry in items section
+#         qty: 1
+#         drop_rate: 0.8          # 0.0–1.0
+#     added: 2026-03-26
+#     revised: ""
+
+
+# ─── ITEMS ───────────────────────────────────────────────────────────────────
+# Named collectables, equipment, consumables, crafting materials, currency.
+# Register an item when its name or value appears in more than one GDD.
+#
+# Required fields: name, status, source, referenced_by, added
+# Attribute fields: value_gold, weight, stackable, category, and any stat
+#   modifiers that another system (e.g., economy, crafting) might reference.
+
+items: []
+
+# Example:
+#
+# items:
+#   - name: goblin_arm
+#     status: active
+#     source: design/gdd/combat.md   # drop defined in combat GDD
+#     referenced_by:
+#       - design/gdd/combat.md
+#       - design/gdd/inventory.md    # inventory GDD lists its weight/stack rules
+#       - design/gdd/economy.md      # economy GDD references its sell price
+#     value_gold: 5
+#     weight: 1
+#     stackable: true
+#     category: crafting_material
+#     added: 2026-03-26
+#     revised: ""
+
+
+# ─── FORMULAS ────────────────────────────────────────────────────────────────
+# Named calculations with defined variables and output ranges.
+# Register a formula when its output feeds into another system's input,
+# or when another GDD references it by name.
+#
+# Required fields: name, status, source, referenced_by, variables[],
+#   output_range[min, max], added
+# Optional: expression (the actual formula), notes
+
+formulas:
+  - name: ad_reward_share
+    status: active
+    source: design/gdd/ads.md
+    referenced_by:
+      - design/gdd/ads.md
+    variables:
+      - reward_gold_base
+      - reward_gold_per_guild_lv
+      - reward_gem
+      - L
+    output_range: [0, 1]   # F3 observation from quests.csv; daily gold 0.267 at L1, weekly 0.25 at L1; validator warns above ad_reward_share_warn 0.30
+    added: 2026-11-16
+  - name: craft_gold
+    status: active
+    source: design/gdd/crafting-and-recipes.md
+    referenced_by:
+      - design/gdd/crafting-and-recipes.md
+      - design/gdd/equipment-enhancement.md
+    variables:
+      - price
+      - craft_gold_ratio_milli
+    output_range: [1, 1000000000]   # F1 content rule for recipes.gold: (price*ratio_milli+500) div 1000; specials (price 0) hand-set: ward 20000, rebirth pill 50000; staff_17 18843 -> 8479
+    added: 2026-11-16
+  - name: craft_unit_ticks
+    status: active
+    source: design/gdd/crafting-and-recipes.md
+    referenced_by:
+      - design/gdd/crafting-and-recipes.md
+    variables:
+      - time_s
+      - tick_rate
+      - speed_milli
+    output_range: [1, 864000]   # F4 ceil(time_s*tick_rate*1000/speed_milli); speed from bld craft_speed_mult (1000 if absent), read at unit start
+    added: 2026-11-16
+  - name: tower_floor_level
+    status: active
+    source: design/gdd/endless-tower.md
+    referenced_by:
+      - design/gdd/endless-tower.md
+    variables:
+      - N
+      - tower_base_level
+      - tower_level_step_milli
+      - level_cap
+    output_range: [40, 200]   # F1; min(200, 40 + ((N-1)*1600) div 1000); floor 51 = L120, floor 100 = L198; past cap F2 scales hp/dmg by 1 + 0.02*excess
+    added: 2026-11-16
+  - name: element_mult
+    status: active
+    source: design/gdd/combat.md
+    referenced_by:
+      - design/gdd/combat.md
+      - design/gdd/utility-ai.md
+    variables:
+      - attacker_element
+      - defender_element
+    output_range: [0.8, 1.25]   # F3; none element = 1.0; counter cycle kim>moc>tho>thuy>hoa>kim
+    added: 2026-11-16
+  - name: defense_mitigation
+    status: active
+    source: design/gdd/combat.md
+    referenced_by:
+      - design/gdd/combat.md
+    variables:
+      - L
+      - def
+      - def_k_per_level
+      - def_k_flat
+    output_range: [0, 1]   # F2; K = 8L+50 at encounter (monster) level, used both directions; never 0
+    added: 2026-11-16
+  - name: member_hit_damage
+    status: active
+    source: design/gdd/combat.md
+    referenced_by:
+      - design/gdd/combat.md
+    variables:
+      - dps
+      - atk_bonus
+      - element_mult
+      - u
+      - dmg_variance
+      - mitigation
+    output_range: [0.2*dps, 1.49*dps]   # F4; spread 0.9-1.1
+    added: 2026-11-16
+  - name: monster_hit_damage
+    status: active
+    source: design/gdd/combat.md
+    referenced_by:
+      - design/gdd/combat.md
+    variables:
+      - mon_hit
+      - enrage
+      - element_mult
+      - dmg_red
+      - K
+      - def_member
+    output_range: [0, "unbounded"]   # F5; mon_hit includes monster_dmg_factor and dmg_scale
+    added: 2026-11-16
+  - name: event_seed
+    status: active
+    source: design/gdd/deterministic-rng.md
+    referenced_by:
+      - design/gdd/deterministic-rng.md
+      - design/gdd/dev-tooling-and-parity-harness.md
+      - design/gdd/sim-core-and-tick-loop.md
+    variables:
+      - world_seed
+      - domain_id
+      - key
+    output_range: [0, 18446744073709551615]
+    added: 2026-11-16
+  - name: content_hash
+    status: active
+    source: design/gdd/data-layer-and-content-pipeline.md
+    referenced_by:
+      - design/gdd/data-layer-and-content-pipeline.md
+      - design/gdd/dev-tooling-and-parity-harness.md
+      - design/gdd/sim-core-and-tick-loop.md
+      - design/gdd/local-save-and-migration.md
+      - design/gdd/leaderboards-and-anti-cheat.md
+    variables:
+      - P
+      - norm_f
+    output_range: ["0", "2^256-1"]   # SHA-256, stored as 64 lowercase hex chars
+    added: 2026-11-16
+  - name: content_live
+    status: active
+    source: design/gdd/data-layer-and-content-pipeline.md
+    referenced_by:
+      - design/gdd/data-layer-and-content-pipeline.md
+      - design/gdd/zones-grounds-monsters-and-hunt-trips.md
+    variables:
+      - wave
+      - live_wave
+      - retired
+    output_range: [false, true]
+    added: 2026-11-16
+  - name: format_compact
+    status: active
+    source: design/gdd/localization.md
+    referenced_by:
+      - design/gdd/localization.md
+    variables:
+      - v
+      - compact_threshold
+      - locale
+    output_range: ["0", "9,223,372T"]   # display string; floors, never rounds up (F2)
+    added: 2026-11-16
+
+# Example:
+#
+# formulas:
+#   - name: damage_formula
+#     status: active
+#     source: design/gdd/combat.md
+#     referenced_by:
+#       - design/gdd/combat.md
+#       - design/gdd/progression.md   # progression GDD scales attack variable
+#     variables:
+#       - attack
+#       - defense
+#       - crit_chance
+#       - crit_multiplier
+#     output_range: [0, 999]
+#     expression: "max(0, attack - defense) * (1 + crit_chance * crit_multiplier)"
+#     notes: "Output feeds into health-system damage intake. Min is 0 (armour
+#       can absorb all damage). Max is uncapped in formula but tuning knob
+#       damage_cap in combat.md clamps at 999."
+#     added: 2026-03-26
+#     revised: ""
+  - name: phase_table_hash
+    status: active
+    source: design/gdd/sim-core-and-tick-loop.md
+    referenced_by:
+      - design/gdd/sim-core-and-tick-loop.md
+      - design/gdd/local-save-and-migration.md
+    variables:
+      - phase
+      - order
+      - owner_id
+    output_range: ["0", "2^256-1"]   # SHA-256, 64 lowercase hex chars
+    added: 2026-11-16
+  - name: advance_catchup
+    status: active
+    source: design/gdd/sim-core-and-tick-loop.md
+    referenced_by:
+      - design/gdd/sim-core-and-tick-loop.md
+    variables:
+      - elapsed_us
+      - acc_us
+      - tick_us
+      - M
+      - T_us
+      - max_ticks
+    output_range: [0, 20]   # n, ticks run per advance call (≤ max_ticks ≤ M, M max 20); gap_us is 0 or > T_us; no pending timeout
+    added: 2026-11-16
+    revised: 2026-11-16  # third design-review: pending timeout and quarantine removed, max_ticks added
+
+
+  - name: type_table_hash
+    status: active
+    source: design/gdd/event-bus-and-history-log.md
+    referenced_by:
+      - design/gdd/event-bus-and-history-log.md
+      - design/gdd/local-save-and-migration.md
+    variables:
+      - type_id
+      - field_count
+      - flags
+      - subject_slot
+      - owner_id
+      - name
+    output_range: ["0", "2^256-1"]   # SHA-256, 64 lowercase hex chars; covers types only (F2)
+    added: 2026-11-16
+  - name: p6_event_budget
+    status: active
+    source: design/gdd/event-bus-and-history-log.md
+    referenced_by:
+      - design/gdd/event-bus-and-history-log.md
+    variables:
+      - c_fixed
+      - c_rec
+      - k_bar
+      - c_route
+      - l_bar
+      - c_commit
+      - S
+      - c_call
+      - p6_share
+      - sim_slice_budget_us
+    output_range: [0, 2000]   # events per tick E_budget (F1); c_* are measured in the P1 spike, illustrative until then
+    added: 2026-11-16
+  - name: history_bytes_max
+    status: active
+    source: design/gdd/event-bus-and-history-log.md
+    referenced_by:
+      - design/gdd/event-bus-and-history-log.md
+      - design/gdd/local-save-and-migration.md
+    variables:
+      - history_ring_cap
+      - milestone_cap_total
+    output_range: [11200, 8000000]   # bytes (F3), 736000 at defaults; transient batches are extra
+    added: 2026-11-16
+    revised: 2026-11-16  # was [4800, 7800000]; corrected in design-review
+  - name: r_logged_max
+    status: active
+    source: design/gdd/event-bus-and-history-log.md
+    referenced_by:
+      - design/gdd/event-bus-and-history-log.md
+    variables:
+      - history_ring_cap
+      - away_span_target_s
+    output_range: [0.00116, 1.157]   # logged records per second (F4), 0.116 at defaults; enforced at seal() as sum(ring_per_day) <= history_ring_cap * 86400 / away_span_target_s
+    added: 2026-11-16
+    revised: 2026-11-16  # was [0.0001, 28]; corrected in design-review
+  - name: change_gold_cost
+    status: active
+    source: design/gdd/schools-and-school-change.md
+    referenced_by:
+      - design/gdd/gold-economy.md
+      - design/gdd/schools-and-school-change.md
+    variables:
+      - L
+      - school_change_income_hours
+      - income_ref_per_level
+    output_range: [0, 9600000]   # gold (F2); 40000 at L10, 400000 at L100, 800000 at L200 with defaults; max at 48 h x L200; free change costs 0
+    added: 2026-11-16
+  - name: carried_level
+    status: active
+    source: design/gdd/schools-and-school-change.md
+    referenced_by:
+      - design/gdd/schools-and-school-change.md
+      - design/gdd/skills.md
+    variables:
+      - old_level
+      - school_change_skill_keep_pct
+      - max_lv
+      - lv_req
+      - rebirth_req
+    output_range: [0, 20]   # skill level per slot after a school change (F4); Skills (21) applies it
+    added: 2026-11-16
+  - name: need_milli
+    status: active
+    source: design/gdd/xp-and-level-pacing-curve.md
+    referenced_by:
+      - design/gdd/rebirth-and-ascension.md
+      - design/gdd/xp-and-level-pacing-curve.md
+      - design/gdd/skills.md
+    variables:
+      - r
+      - L
+      - xp_need_coef
+      - xp_need_exp
+      - xp_early_floor
+      - xp_early_end
+      - xp_rebirth_mult
+    output_range: [10300, 14565410703]   # milli-XP to go from level L to L+1 (F1); level 1 rebirth 0 to level 199 rebirth 5 with defaults; strictly increasing in L
+    added: 2026-11-16
+  - name: effective_milli
+    status: active
+    source: design/gdd/xp-and-level-pacing-curve.md
+    referenced_by:
+      - design/gdd/xp-and-level-pacing-curve.md
+    variables:
+      - base_milli
+      - pa
+      - pa_max
+      - growth_base_ppm
+      - growth_pa_ppm
+      - growth_bonus_ppm
+      - bonus_ppm
+    output_range: [0, 1847179534663]   # milli-XP after member-side multipliers (F2); 0.6x-1.69x of base_milli; max at base 2^40, PA 200, rebirth 5
+    added: 2026-11-16
+  - name: cumulative_need_milli
+    status: active
+    source: design/gdd/xp-and-level-pacing-curve.md
+    referenced_by:
+      - design/gdd/xp-and-level-pacing-curve.md
+    variables:
+      - r
+      - a
+      - b
+    output_range: [0, 268211487372]   # milli-XP (F3); 0 when a = b; the largest default stretch is rebirth 5, levels 180-200
+    added: 2026-11-16
+  - name: progress_table_hash
+    status: active
+    source: design/gdd/xp-and-level-pacing-curve.md
+    referenced_by:
+      - design/gdd/xp-and-level-pacing-curve.md
+    variables:
+      - need_milli
+      - cap
+      - bonus_ppm
+      - growth_bonus_ppm
+    output_range: [0, 0]   # F4: SHA-256 hex over a fixed 9,612-byte input; no numeric range. Default data gives fcc9532fd641d0898a20de6837044c4190dd94327b492602ce0f78e56be301b8
+    added: 2026-11-16
+  - name: member_profile
+    status: active
+    source: design/gdd/member-model.md
+    referenced_by:
+      - design/gdd/member-model.md
+    variables:
+      - L
+      - member_atk_coef
+      - member_atk_exp
+      - member_hp_coef
+      - member_hp_exp
+      - member_hp_flat
+      - member_def_coef
+      - member_def_exp
+      - role_dps_ppm
+      - role_hp_ppm
+      - role_def_ppm
+      - skill_dps_bonus
+      - skill_dps_ref_level
+      - gear flat_milli and pct_ppm
+      - stat_pct_total
+    output_range: [1380, 3290528]   # dps_milli (F3), L1 healer no gear to L200 melee_burst no gear; higher with gear. Also atk_milli, hp_max_milli (130000 at L1), def_milli
+    added: 2026-11-16
+  - name: profile_table_hash
+    status: active
+    source: design/gdd/member-model.md
+    referenced_by:
+      - design/gdd/member-model.md
+    variables:
+      - atk_base_milli[1..200]
+      - hp_base_milli[1..200]
+      - def_base_milli[1..200]
+      - sim_roles ppm rows
+    output_range: [0, 18446744073709551615]   # 64-bit content hash (F4), recorded in parity vectors
+    added: 2026-11-16
+  - name: member_cap
+    status: active
+    source: design/gdd/guild-and-buildings.md
+    referenced_by:
+      - design/gdd/guild-and-buildings.md
+      - design/gdd/recruitment.md
+    variables:
+      - cap_hq
+      - cap_housing
+    output_range: [12, 80]   # F2: bld_hq member_cap (12-40) + bld_housing member_cap (0-40); capacity key, never decays; Recruitment (15) enforces it
+    added: 2026-11-16
+  - name: building_effective_level
+    status: active
+    source: design/gdd/guild-and-buildings.md
+    referenced_by:
+      - design/gdd/gold-economy.md
+      - design/gdd/guild-and-buildings.md
+      - design/gdd/crafting-and-recipes.md
+    variables:
+      - level_k
+      - upkeep_arrears_days
+      - arrears_days_per_level
+    output_range: [0, 11]   # F4: max(0, level - floor(arrears/arrears_days_per_level)); capacity keys exempt; arrears input upkeep_arrears_days from Gold economy (27) R8
+    revised: 2026-11-16  # consistency-check: arrears signal confirmed (was PROVISIONAL)
+    added: 2026-11-16
+  - name: skill_effect_value
+    status: active
+    source: design/gdd/skills.md
+    referenced_by:
+      - design/gdd/skills.md
+    variables:
+      - a_micro
+      - b_micro
+      - L
+    output_range: [-400000, 40000000]   # F1 integer micro-units (a + b*L); Combat (10) executes these values by effect kind
+    added: 2026-11-16
+  - name: skill_norm_ppm
+    status: active
+    source: design/gdd/skills.md
+    referenced_by:
+      - design/gdd/skills.md
+    variables:
+      - skill_lv
+      - max_lv
+      - rebirth
+    output_range: [0, 1000000]   # F9 sum(lv)/sum(max_lv) over learnable school skills; input to CA/PA (9) ca_value, replaces sim/model.py placeholder
+    added: 2026-11-16
+  - name: skill_rebirth_kept_level
+    status: active
+    source: design/gdd/skills.md
+    referenced_by:
+      - design/gdd/rebirth-and-ascension.md
+      - design/gdd/skills.md
+    variables:
+      - skill_lv
+      - skill_keep_pct
+    output_range: [0, 20]   # F7 floor(lv * skill_keep_pct / 100); skill_keep_pct owned by Rebirth (23) in rebirth.csv
+    added: 2026-11-16
+  - name: skill_seconds_to_ticks
+    status: active
+    source: design/gdd/skills.md
+    referenced_by:
+      - design/gdd/skills.md
+    variables:
+      - v_micro
+      - tick_rate
+    output_range: [0, 36000]   # F8 ceil(v_micro * tick_rate / 1e6); any positive duration >= 1 tick; used by Combat (10) for every sec unit
+    added: 2026-11-16
+  - name: tax_amount
+    status: active
+    source: design/gdd/gold-economy.md
+    referenced_by:
+      - design/gdd/gold-economy.md
+      - design/gdd/retention-leaving-and-negotiation.md
+    variables:
+      - gross
+      - tax_ppm
+      - tax_cap_ppm
+    output_range: [0, 200000000000]   # gold (F1); floor(gross x tax_ppm / 1e6), gross <= gold_op_max 1e12, tax_ppm <= 200000; rounding favours the member; Retention (16) reads tax_ppm
+    added: 2026-11-16
+  - name: shop_fund_share
+    status: active
+    source: design/gdd/gold-economy.md
+    referenced_by:
+      - design/gdd/gold-economy.md
+      - design/gdd/guild-market-and-trade-orders.md
+    variables:
+      - price_total
+      - shop_fund_share_ppm
+    output_range: [0, 1000000000000]   # gold to the fund (F2); rest of the price is burned; 840 of a 2800 sale at the default 0.3
+    added: 2026-11-16
+  - name: upkeep_charge
+    status: active
+    source: design/gdd/gold-economy.md
+    referenced_by:
+      - design/gdd/gold-economy.md
+    variables:
+      - guild_upkeep_per_level_day
+      - level_i
+    output_range: [0, 11200000]   # gold per day (F3); 700 x sum of roster levels, max 80 members x L200; unpaid part forgiven and counted in upkeep_arrears_days, which guild-and-buildings F4 consumes
+    added: 2026-11-16
+  - name: bank_interest
+    status: active
+    source: design/gdd/gold-economy.md
+    referenced_by:
+      - design/gdd/gold-economy.md
+    variables:
+      - fund
+      - interest_ppm
+      - upkeep_charge
+      - bank_interest_cap_pct
+    output_range: [0, 22400000]   # gold per day (F5); capped at bank_interest_cap_pct (100, max 200) of the day's upkeep_charge; interest_ppm from buildings.csv daily_interest_pct
+    added: 2026-11-16
+  - name: gold_conservation
+    status: active
+    source: design/gdd/gold-economy.md
+    referenced_by:
+      - design/gdd/gold-economy.md
+      - design/gdd/zones-grounds-monsters-and-hunt-trips.md
+    variables:
+      - total_mint
+      - total_burn
+      - fund
+      - wallet_i
+    output_range: [0, 0]   # F6 difference: sum(mint totals) - sum(burn totals) - (fund + sum wallets) is always 0; the S3 money-conservation test
+    added: 2026-11-16
+  - name: base_gold_milli
+    status: active
+    source: design/gdd/items-and-loot-tables.md
+    referenced_by:
+      - design/gdd/items-and-loot-tables.md
+    variables:
+      - L
+      - base_gold_coef
+      - base_gold_exp
+    output_range: [2000, 679459]   # F1 boot table, milli-gold, L1..L200 with coef 2.0, exp 1.1; L50 = 147876
+    added: 2026-11-16
+  - name: gold_drop
+    status: active
+    source: design/gdd/items-and-loot-tables.md
+    referenced_by:
+      - design/gdd/items-and-loot-tables.md
+    variables:
+      - base_gold_milli
+      - q_milli
+    output_range: [2, 10192]   # F2 whole gold per gold row hit; L50 q1000 = 148; credited by Gold economy as hunt_gold
+    added: 2026-11-16
+  - name: loot_luck_milli
+    status: active
+    source: design/gdd/items-and-loot-tables.md
+    referenced_by:
+      - design/gdd/items-and-loot-tables.md
+    variables:
+      - drop_luck_floor_milli
+      - drop_luck_span_milli
+      - pa
+      - rebirth_drop_milli
+      - trait_mod_ppm_rare_drop
+    output_range: [800, 1250]   # F3 party mean; 1000 at PA100 rebirth 0 (neutral); multiplies rare/epic equip_pool ppm only (F4); Golden Boss fixed 1000
+    added: 2026-11-16
+  - name: sell_value
+    status: active
+    source: design/gdd/items-and-loot-tables.md
+    referenced_by:
+      - design/gdd/items-and-loot-tables.md
+      - design/gdd/crafting-and-recipes.md
+      - design/gdd/guild-market-and-trade-orders.md
+      - design/gdd/gold-economy.md
+    variables:
+      - price
+      - equip_sell_milli
+      - mat_sell_milli
+    output_range: [0, 1000000000]   # F5 whole gold per unit, <= price; equip_sell_milli covers equipment AND consumables; rare t5 weapon 6311 -> 2524; used at hand-in (loot_handover) and by Gold economy sell_item (never materials, Items R13)
+    revised: 2026-11-16  # consistency-check: consumables named explicitly (was: equipment only)
+    added: 2026-11-16
+  - name: ca_milli
+    status: active
+    source: design/gdd/ca-pa-and-traits.md
+    referenced_by:
+      - design/gdd/rebirth-and-ascension.md
+      - design/gdd/ca-pa-and-traits.md
+    variables:
+      - level
+      - cap
+      - skill_norm_ppm
+      - equip_tier_sum
+      - tier_max
+      - revealed_points
+      - pa
+      - ca_w_level_ppm
+      - ca_w_skill_ppm
+      - ca_w_equip_ppm
+      - ca_w_trait_ppm
+      - ca_over_pa_ppm
+    output_range: [0, 200000]   # F1, milli-CA; ca = ca_milli // 1000 (0-200); max CA = 100 + pa/2 at defaults, so Ascension (CA >= 180) needs PA >= 160
+    added: 2026-11-16
+  - name: pa_estimate_chain
+    status: active
+    source: design/gdd/ca-pa-and-traits.md
+    referenced_by:
+      - design/gdd/ca-pa-and-traits.md
+    variables:
+      - pa
+      - pa_key
+      - w
+      - pa_hw_no_scout
+    output_range: [0, 200]   # F3 lower bound lo_w; RNG domain 9 key [pa_key, w], one randint per width from 38 down; range [lo_w, lo_w+2w] always contains PA, nested, uniform-preserving
+    added: 2026-11-16
+  - name: kill_base_milli
+    status: active
+    source: design/gdd/zones-grounds-monsters-and-hunt-trips.md
+    referenced_by:
+      - design/gdd/zones-grounds-monsters-and-hunt-trips.md
+      - design/gdd/xp-and-level-pacing-curve.md
+      - design/gdd/party.md
+    variables:
+      - kill_xp_milli[L]
+      - xp_mult_ppm
+      - diff_ppm
+      - n
+    output_range: [30, 4242640]   # F1 milli-XP per member per kill, source-side (before award's growth_mult); diff_ppm = F2 level-difference factor 100000-1000000
+    added: 2026-11-16
+  - name: kill_xp_table_hash
+    status: active
+    source: design/gdd/zones-grounds-monsters-and-hunt-trips.md
+    referenced_by:
+      - design/gdd/zones-grounds-monsters-and-hunt-trips.md
+      - design/gdd/dev-tooling-and-parity-harness.md
+    variables:
+      - kill_xp_milli[1..200]
+    output_range: "64 hex chars"   # F3 SHA-256 over i64_be cells; parity vector
+    added: 2026-11-16
+  - name: raid_boss_hp_scale
+    status: active
+    source: design/gdd/golden-boss-and-guild-raid.md
+    referenced_by:
+      - design/gdd/golden-boss-and-guild-raid.md
+      - design/gdd/combat.md
+    variables:
+      - n
+      - hp_per_participant
+      - raid_hp_mult
+    output_range: [6.6, 30]   # F1 (1 + hp_per_participant*n) * raid_hp_mult; passed to Combat as hp_scale
+    added: 2026-11-16
+  - name: raid_contribution_share
+    status: active
+    source: design/gdd/golden-boss-and-guild-raid.md
+    referenced_by:
+      - design/gdd/golden-boss-and-guild-raid.md
+    variables:
+      - dealt
+      - healed
+      - taken
+      - w_dealt
+      - w_healed
+      - w_taken
+    output_range: [0, 1]   # F3 weighted pot shares 0.6/0.2/0.2, empty pots dropped and renormalised; sums to 1
+    added: 2026-11-16
+  - name: party_xp_mult_ppm
+    status: active
+    source: design/gdd/party.md
+    referenced_by:
+      - design/gdd/party.md
+      - design/gdd/zones-grounds-monsters-and-hunt-trips.md
+    variables:
+      - n
+      - party_xp_per_member
+      - party_buffer_bonus
+      - party_tank_bonus
+      - party_no_buffer_penalty
+      - B
+      - T
+    output_range: [1000000, 1470000]   # F1; solo (n=1) = 1000000 exactly; read once at trip start by Zones (xp_mult_ppm); banner counts as buffer
+    added: 2026-11-16
+  - name: party_comp_score
+    status: deprecated
+    source: design/gdd/party.md
+    referenced_by:
+      - design/gdd/party.md
+    variables:
+      - n
+      - B
+      - T
+      - D
+      - C
+      - links
+      - spread
+      - bond_sum
+    output_range: [1000, 12300]   # F2 integer points; greedy formation gain; weights are proposed config keys (party OQ-5)
+    added: 2026-11-16
+    revised: 2026-11-16  # deprecated same day by party.md: composition score is owned by utility-ai.md (party_composition_score)
+# ─── CONSTANTS ───────────────────────────────────────────────────────────────
+# Named numerical values referenced across multiple systems.
+# Register a constant when it is defined in one GDD but another GDD must
+# agree with it (e.g., gold carry limit defined in economy but checked in
+# inventory, or base inventory slots defined in inventory but displayed in HUD).
+#
+# Required fields: name, status, source, referenced_by, value, unit, added
+
+  - name: enhance_attempt_cost
+    status: active
+    source: design/gdd/equipment-enhancement.md
+    referenced_by:
+      - design/gdd/equipment-enhancement.md
+      - design/gdd/gold-economy.md
+    variables:
+      - enhance_base_per_level
+      - level_req
+      - cost_mult_milli
+    output_range: [30, 3600000]   # F1 gold per attempt = ceil_div(30 * max(1,level_req) * cost_mult_milli[n], 1000); paid from the guild fund, entry type 23
+    added: 2026-11-16
+  - name: enhance_cap
+    status: active
+    source: design/gdd/equipment-enhancement.md
+    referenced_by:
+      - design/gdd/equipment-enhancement.md
+      - design/gdd/guild-and-buildings.md
+    variables:
+      - max_enhance_lv
+      - enhance_max_lv
+    output_range: [2, 20]   # F4 min(effect(bld_enhance,max_enhance_lv), enhance_max_lv); unbuilt -> attempts refused (101)
+    added: 2026-11-16
+  - name: iap_grants_to_deliver
+    status: active
+    source: design/gdd/in-app-purchases.md
+    referenced_by:
+      - design/gdd/in-app-purchases.md
+    variables:
+      - claim_grants
+      - store_grants_applied
+      - store_grants_revoked
+    output_range: [0, 15]   # F4; lenses per grant (max pack 15); set empty when save matches ledger; idempotent by grant_ref, bound to guild_uid
+    added: 2026-11-16
+  - name: ground_utility
+    status: active
+    source: design/gdd/utility-ai.md
+    referenced_by:
+      - design/gdd/utility-ai.md
+    variables:
+      - L
+      - level_min
+      - level_max
+      - danger
+      - edge_ppm
+      - ai_level_step_ppm
+      - ai_elem_weight_ppm
+      - ai_danger_no_buffer_ppm
+    output_range: [-210000, 1090000]   # F1 ppm; highest candidate wins, ties lowest uid; reproduces balance_sim pick_ground for the standard party (edge 0, has buffer)
+    added: 2026-11-16
+  - name: party_composition_score
+    status: active
+    source: design/gdd/utility-ai.md
+    referenced_by:
+      - design/gdd/utility-ai.md
+      - design/gdd/party.md
+    variables:
+      - has_buffer
+      - has_tank
+      - sinh_links
+      - counters_target
+      - party_synergy
+      - level_spread
+    output_range: [-9700000, 1350000]   # F3 ppm; consumed by Party (13) for formation and Golden Boss temp teams; buffer 400000 counted once per roster
+    added: 2026-11-16
+  - name: recruit_candidate_id
+    status: active
+    source: design/gdd/recruitment.md
+    referenced_by:
+      - design/gdd/recruitment.md
+    variables:
+      - kind
+      - ordinal
+      - slot
+    output_range: [1, 562949953421312]   # F2: 1 + kind*2^48 + ordinal*2^8 + slot; also CA/PA pa_key and the accept/reject command entity
+    added: 2026-11-16
+  - name: recruit_pa_roll
+    status: active
+    source: design/gdd/recruitment.md
+    referenced_by:
+      - design/gdd/recruitment.md
+    variables:
+      - recruit_pa_band_w[1..5]
+      - band_lo
+      - band_hi
+      - min_band
+    output_range: [0, 200]   # F4: bands 0-59/60-99/100-139/140-169/170-200 at 30/40/22/6.5/1.5%; walk-in mean 79.8; invitations bands>=3 (VS)
+    added: 2026-11-16
+  - name: recruit_school_weight
+    status: active
+    source: design/gdd/recruitment.md
+    referenced_by:
+      - design/gdd/recruitment.md
+    variables:
+      - recruit_school_weight_ppm
+      - recruit_buffer_boost_ppm
+      - buffers
+      - roster
+      - party_max
+    output_range: [0.2, 0.556]   # F3: buffer-school (moc_1) pick share in wave 1; 1/3 at default boost while buffers < max(1, ceil(roster/party_max))
+    added: 2026-11-16
+  - name: rebirth_cost
+    status: active
+    source: design/gdd/rebirth-and-ascension.md
+    referenced_by:
+      - design/gdd/rebirth-and-ascension.md
+      - design/gdd/gold-economy.md
+    variables:
+      - gold_cost
+      - pill_cost
+    output_range: [0, 50000000]   # F1 gold per row from rebirth.csv (0, 200k, 1M, 5M, 20M; ascension 50M); pills 1-5, ascension 0; burned as entry type 24
+    added: 2026-11-16
+  - name: elder_mod_ppm
+    status: active
+    source: design/gdd/rebirth-and-ascension.md
+    referenced_by:
+      - design/gdd/rebirth-and-ascension.md
+      - design/gdd/ca-pa-and-traits.md
+    variables:
+      - school_buff_ppm
+      - trait_ppm
+      - elder_trait_share_ppm
+      - elder_trait_categories
+      - elder_buff_cap_ppm
+    output_range: [-150000, 150000]   # F3 guild-wide ppm per trait effect key for disciples; truncation toward zero; added into trait_mod_ppm (PROVISIONAL)
+    added: 2026-11-16
+  - name: listing_ask
+    status: active
+    source: design/gdd/guild-market-and-trade-orders.md
+    referenced_by:
+      - design/gdd/guild-market-and-trade-orders.md
+    variables:
+      - price
+      - markup_ppm
+      - listing_grace_days
+      - listing_decay_ppm_per_day
+      - sell_value
+    output_range: [1, 1000000]   # F1 gold; floor = Items F5 sell_value, start price*markup (0.5-5.0x), linear daily discount after grace; epic sword 17671 @1.5x: 26506 -> floor 7068
+    added: 2026-11-16
+  - name: member_price
+    status: active
+    source: design/gdd/guild-market-and-trade-orders.md
+    referenced_by:
+      - design/gdd/guild-market-and-trade-orders.md
+    variables:
+      - base
+      - trait_mod_ppm_buy_price_mult
+      - trade_trait_clamp_ppm
+      - price_floor
+    output_range: [1, 1300000]   # F2 gold; base x (1 + clamped buy_price_mult trait, +-0.30); stock never below its F1 floor; passed as shop_sale price_total for catalogue lines
+    added: 2026-11-16
+  - name: bounty_bounds
+    status: active
+    source: design/gdd/guild-market-and-trade-orders.md
+    referenced_by:
+      - design/gdd/guild-market-and-trade-orders.md
+    variables:
+      - base_price
+      - bounty_min_ppm
+      - bounty_max_ppm
+    output_range: [1, 6105]   # F3 gold per unit; 0.5x-3.0x material base_price; mat_z06_1 (184): 92-552
+    added: 2026-11-16
+  - name: order_delivery
+    status: active
+    source: design/gdd/guild-market-and-trade-orders.md
+    referenced_by:
+      - design/gdd/guild-market-and-trade-orders.md
+    variables:
+      - remaining
+      - units_in
+      - fund
+      - bounty_per_unit
+      - n
+    output_range: [0, 1000000000000]   # F4 credited = min(remaining, units_in, fund // bounty); bounty split equally over the hand-in roster, remainder by ascending member_id (Zones R8 rule); fund -> wallet order_bounty (requested type)
+    added: 2026-11-16
+  - name: mood_target
+    status: active
+    source: design/gdd/retention-leaving-and-negotiation.md
+    referenced_by:
+      - design/gdd/retention-leaving-and-negotiation.md
+    variables:
+      - mood_base
+      - tavern_mood_gain
+      - mood_party_base
+      - top_bond
+      - salary
+      - tax_ppm
+      - satiety
+      - stamina
+    output_range: [0, 100]   # mood points (milli in storage); F1 clamp; defaults give 13-97 unclamped; reads Gold tax_ppm and bld_tavern mood_gain
+    added: 2026-11-16
+  - name: reference_raise
+    status: active
+    source: design/gdd/retention-leaving-and-negotiation.md
+    referenced_by:
+      - design/gdd/retention-leaving-and-negotiation.md
+    variables:
+      - income_ref_per_level
+      - level
+      - raise_pct_ppm
+      - salary_demand
+    output_range: [1200, 300000]   # gold per day (F5); 5% of D = income_ref_per_level x level x 24; salary paid by Gold economy R8
+    added: 2026-11-16
+  - name: return_chance
+    status: active
+    source: design/gdd/retention-leaving-and-negotiation.md
+    referenced_by:
+      - design/gdd/retention-leaving-and-negotiation.md
+      - design/gdd/jianghu-free-agents-and-npc-guilds.md
+    variables:
+      - return_base
+      - trait_return_chance
+      - return_loyalty_coef
+      - final_loyalty
+    output_range: [0, 1]   # F9; 0.1-0.75 at defaults; computed at departure and handed to Jianghu (17), which owns the return draw
+    added: 2026-11-16
+  - name: msm_injury_duration
+    status: active
+    source: design/gdd/member-state-machine.md
+    referenced_by:
+      - design/gdd/member-state-machine.md
+    variables:
+      - injury_s
+      - tick_rate
+      - injury_recovery
+    output_range: [1, 864000]   # ticks (F5); 9000 default, 8550 with Infirmary L1
+    added: 2026-11-16
+  - name: msm_fatigue_downtime_share
+    status: active
+    source: design/gdd/member-state-machine.md
+    referenced_by:
+      - design/gdd/member-state-machine.md
+    variables:
+      - stamina_decay_per_h
+      - stamina_regen_per_h
+      - fatigue_rest_below
+      - T_active
+      - T_home
+      - T_trip
+    output_range: [0, 1]   # F7 design check; about 0.017 for a full party at defaults, 0 solo
+    added: 2026-11-16
+  - name: channel_gain_db
+    status: active
+    source: design/gdd/settings.md
+    referenced_by:
+      - design/gdd/settings.md
+      - design/gdd/audio.md
+    variables:
+      - v
+      - mute
+      - volume_taper_exp
+      - volume_floor_db
+    output_range: [-60, 0]   # dB per bus (F1); below volume_floor_db -> silent; Audio (40) applies it
+    added: 2026-11-16
+  - name: feature_on
+    status: active
+    source: design/gdd/entitlement-and-feature-flags.md
+    referenced_by:
+      - design/gdd/entitlement-and-feature-flags.md
+    variables:
+      - requires
+      - trial_eligible
+      - view_flags
+      - trial_until
+      - tick
+    output_range: [0, 1]   # F3 bool; premium bit 1, exact_pa_all bit 2, or tick < trial_until; pure sim read, no RNG/clock
+    added: 2026-11-16
+  - name: npc_power
+    status: active
+    source: design/gdd/jianghu-free-agents-and-npc-guilds.md
+    referenced_by:
+      - design/gdd/jianghu-free-agents-and-npc-guilds.md
+    variables:
+      - player_ref_ca
+      - strength_ppm
+      - npc_catchup_ppm
+      - npc_noise_max
+      - npc_overshoot
+    output_range: [0, 200]   # F2; NPC guild power (CA scale), non-decreasing, daily; read by Arena (18) via npc_lineup
+    added: 2026-11-16
+  - name: fa_sign_chance
+    status: active
+    source: design/gdd/jianghu-free-agents-and-npc-guilds.md
+    referenced_by:
+      - design/gdd/jianghu-free-agents-and-npc-guilds.md
+    variables:
+      - sign_base
+      - sign_ca_coef
+      - sign_day_coef
+      - ca
+      - days_listed
+    output_range: [0, 600000]   # F5; ppm per day; 7%-42% at defaults
+    added: 2026-11-16
+  - name: fa_invite_chance
+    status: active
+    source: design/gdd/jianghu-free-agents-and-npc-guilds.md
+    referenced_by:
+      - design/gdd/jianghu-free-agents-and-npc-guilds.md
+    variables:
+      - inv_base
+      - inv_loyalty_coef
+      - final_loyalty
+      - trait_negotiation_success
+      - reason_pen
+      - offer
+      - ask
+      - poach_mult
+    output_range: [20000, 900000]   # F7; ppm; ask uses Retention D (income_ref_per_level x level x 24) x fa_ask_pct_ppm
+    added: 2026-11-16
+  - name: fa_poach_fee
+    status: active
+    source: design/gdd/jianghu-free-agents-and-npc-guilds.md
+    referenced_by:
+      - design/gdd/jianghu-free-agents-and-npc-guilds.md
+    variables:
+      - ca
+      - poach_fee_per_ca
+      - npc_level
+    output_range: [0, 8000000]   # F8; gold, burned as sink jianghu_poach (Gold economy entry type 32)
+    revised: 2026-11-16  # consistency-check: entry type assigned (was PROVISIONAL)
+    added: 2026-11-16
+  - name: fa_return_schedule
+    status: active
+    source: design/gdd/jianghu-free-agents-and-npc-guilds.md
+    referenced_by:
+      - design/gdd/jianghu-free-agents-and-npc-guilds.md
+    variables:
+      - return_chance
+      - return_min_days
+      - return_max_days
+    output_range: [14, 60]   # F9; days after unlisting, drawn once with chance return_chance (Retention F9)
+    added: 2026-11-16
+  - name: lb_time_budget
+    status: active
+    source: design/gdd/leaderboards-and-anti-cheat.md
+    referenced_by:
+      - design/gdd/leaderboards-and-anti-cheat.md
+    variables:
+      - W_total
+      - T_recv
+      - T_account
+      - enroll_grace_s
+      - tick_rate
+      - cap_s
+      - slack_s
+    output_range: [false, true]   # F1; cumulative worked ticks <= (T_recv - T_account + grace) * r + (cap + slack) * r; server clock only
+    added: 2026-11-16
+  - name: lb_claim_bounds
+    status: active
+    source: design/gdd/leaderboards-and-anti-cheat.md
+    referenced_by:
+      - design/gdd/leaderboards-and-anti-cheat.md
+    variables:
+      - level_cap
+      - ca_max
+      - W_seg
+      - golden_boss_interval_min
+      - gb_backlog_max
+    output_range: [false, true]   # F3; season boss kills <= floor(W_seg / (interval_min*60*r)) + 3
+    added: 2026-11-16
+  - name: lb_season_id
+    status: active
+    source: design/gdd/leaderboards-and-anti-cheat.md
+    referenced_by:
+      - design/gdd/leaderboards-and-anti-cheat.md
+    variables:
+      - T_recv
+      - season_epoch
+      - season_length_days
+    output_range: [0, "unbounded"]   # F5; server UTC only
+    added: 2026-11-16
+  - name: lb_guild_power
+    status: active
+    source: design/gdd/leaderboards-and-anti-cheat.md
+    referenced_by:
+      - design/gdd/leaderboards-and-anti-cheat.md
+    variables:
+      - ca
+      - lb_guild_power_top_k
+    output_range: [0, "K * ca_max"]   # F6; sum of top-K active member CA, Elders excluded; guild board second key after guild_level
+    added: 2026-11-16
+  - name: arena_champion_row
+    status: active
+    source: design/gdd/arena.md
+    referenced_by:
+      - design/gdd/arena.md
+    variables:
+      - school
+      - level
+      - power_milli
+      - arena_archetype
+      - arena_dmg_scale
+    output_range: [0.35, 8.0]   # F1 multipliers; hp_mult = arch.hp*P (1.15-8.0), atk_mult = arch.atk*P (0.35-2.8), def_mult = arch.def; P = power_milli/1000 from Jianghu (17, provisional)
+    added: 2026-11-16
+  - name: arena_daily_reward
+    status: active
+    source: design/gdd/arena.md
+    referenced_by:
+      - design/gdd/arena.md
+    variables:
+      - rank
+      - ladder_size
+      - L_top
+      - reward_mult_milli
+      - arena_gold_per_level
+      - arena_prestige_per_step
+      - arena_backlog_days
+    output_range: [110, 297000]   # F4 gold/day = 100*L_top*(S-r+1)*reward_mult; prestige/day 10*(S-r+1)*reward_mult; at most 3 backlog days
+    added: 2026-11-16
+  - name: quest_target
+    status: active
+    source: design/gdd/quests-and-achievements.md
+    referenced_by:
+      - design/gdd/quests-and-achievements.md
+    variables:
+      - count_base
+      - count_per_guild_lv
+      - guild_level
+    output_range: [1, 110]   # F1 count_base + count_per_guild_lv*(L-1), L = guild level 1-8 snapshot at roll; today's data max q_d_hunt 110
+    added: 2026-11-16
+  - name: quest_gold
+    status: active
+    source: design/gdd/quests-and-achievements.md
+    referenced_by:
+      - design/gdd/quests-and-achievements.md
+      - design/gdd/gold-economy.md
+    variables:
+      - reward_gold_base
+      - reward_gold_per_guild_lv
+      - guild_level
+    output_range: [0, 13500]   # F2 base + per_lv*(L-1); credited to fund as quest_reward (type 5); 0 = no ledger entry
+    added: 2026-11-16
+  - name: free_lens_grant
+    status: active
+    source: design/gdd/quests-and-achievements.md
+    referenced_by:
+      - design/gdd/quests-and-achievements.md
+      - design/gdd/in-app-purchases.md
+    variables:
+      - n
+      - pa_lens_stock_cap
+      - stock
+    output_range: [0, 4]   # F5 min(n, max(0, cap - stock)); stock counts paid+free lenses in storage; explicit claim refused (104) if short, roll grants partial
+    added: 2026-11-16
+constants:
+  - name: quests_event_type_block
+    status: active
+    source: design/gdd/quests-and-achievements.md
+    referenced_by:
+      - design/gdd/quests-and-achievements.md
+    value: 2500
+    unit: type_id  # Event bus block 2500-2599 (2501 period_rolled .. 2507 achievement_claimed); Command block 2501-2504; subscriber order 2500
+    added: 2026-11-16
+  - name: quest_reset_utc_s
+    status: active
+    source: design/gdd/quests-and-achievements.md
+    referenced_by:
+      - design/gdd/quests-and-achievements.md
+    value: 61200
+    unit: seconds  # config.csv (new); daily reset 17:00 UTC = 00:00 UTC+7; wall-clock via host quest_clock command (R2); weeks start Monday (quest_week_start_day 3)
+    added: 2026-11-16
+  - name: achievement_lens_total_max
+    status: active
+    source: design/gdd/quests-and-achievements.md
+    referenced_by:
+      - design/gdd/quests-and-achievements.md
+    value: 4
+    unit: lenses  # config.csv (new); lifetime free lenses from achievements; must match IAP F3 M
+    added: 2026-11-16
+  - name: ads_command_type_block
+    status: active
+    source: design/gdd/ads.md
+    referenced_by:
+      - design/gdd/ads.md
+    value: 3300
+    unit: type_id  # Command block 3300-3399; 3301 credit_ad_watch (host-only), refusals 101-104
+    revised: 2026-11-16  # consistency-check: refusal codes were 3301-1..4 (not integers, Command layer R4); id confirmed (was PROVISIONAL)
+    added: 2026-11-16
+  - name: ad_rewarded_daily_max
+    status: active
+    source: design/gdd/ads.md
+    referenced_by:
+      - design/gdd/ads.md
+    value: 5
+    unit: credits_per_day  # config.csv key to add; F2 safety cap; validator error if quests.csv ad watches/day exceed it
+    added: 2026-11-16
+  - name: member_state_event_type_block
+    status: active
+    source: design/gdd/member-state-machine.md
+    referenced_by:
+      - design/gdd/member-state-machine.md
+    value: 4100
+    unit: type_id  # Event bus block 4100-4199; 4101 member_state_changed, 4102 member_injured (ring), 4103 member_order_ended; commands 4101 order_member, 4102 clear_order; P2 order 4100; fail codes 41001-41003
+    added: 2026-11-16
+  - name: need_max
+    status: active
+    source: design/gdd/member-state-machine.md
+    referenced_by:
+      - design/gdd/member-state-machine.md
+    value: 100
+    unit: points  # satiety and stamina scale 0-100, stored as milli-points (0-100000)
+    added: 2026-11-16
+  - name: satiety_decay_per_h
+    status: active
+    source: design/gdd/member-state-machine.md
+    referenced_by:
+      - design/gdd/member-state-machine.md
+    value: 60
+    unit: points_per_hour  # proposed config key; active states only
+    added: 2026-11-16
+  - name: stamina_decay_per_h
+    status: active
+    source: design/gdd/member-state-machine.md
+    referenced_by:
+      - design/gdd/member-state-machine.md
+    value: 60
+    unit: points_per_hour  # proposed config key; active states
+    added: 2026-11-16
+  - name: stamina_regen_per_h
+    status: active
+    source: design/gdd/member-state-machine.md
+    referenced_by:
+      - design/gdd/member-state-machine.md
+    value: 1200
+    unit: points_per_hour  # proposed config key; home states; x bld_inn stamina_regen_mult
+    added: 2026-11-16
+  - name: eat_below
+    status: active
+    source: design/gdd/member-state-machine.md
+    referenced_by:
+      - design/gdd/member-state-machine.md
+    value: 40
+    unit: points  # proposed config key; idle member eats below this satiety
+    added: 2026-11-16
+  - name: fatigue_rest_below
+    status: active
+    source: design/gdd/member-state-machine.md
+    referenced_by:
+      - design/gdd/member-state-machine.md
+    value: 30
+    unit: points  # proposed config key; idle member rests below this stamina
+    added: 2026-11-16
+  - name: injury_after_deaths
+    status: active
+    source: design/gdd/member-state-machine.md
+    referenced_by:
+      - design/gdd/member-state-machine.md
+    value: 3
+    unit: deaths  # proposed config key; deaths within injury_window_s that injure at revival
+    added: 2026-11-16
+  - name: injury_window_s
+    status: active
+    source: design/gdd/member-state-machine.md
+    referenced_by:
+      - design/gdd/member-state-machine.md
+    value: 3600
+    unit: seconds  # proposed config key
+    added: 2026-11-16
+  - name: injury_s
+    status: active
+    source: design/gdd/member-state-machine.md
+    referenced_by:
+      - design/gdd/member-state-machine.md
+    value: 900
+    unit: seconds  # proposed config key; x (1 - bld_infirmary injury_recovery), capped 90%
+    added: 2026-11-16
+  - name: rebirth_event_type_block
+    status: active
+    source: design/gdd/rebirth-and-ascension.md
+    referenced_by:
+      - design/gdd/rebirth-and-ascension.md
+    value: 2300
+    unit: type_id  # Event bus block 2300-2399; 2301 member_reborn, 2302 member_ascended (milestones); commands 2301 rebirth_member, 2302 ascend_member; reason codes 101-112
+    added: 2026-11-16
+  - name: ascension_ca_min
+    status: active
+    source: design/gdd/rebirth-and-ascension.md
+    referenced_by:
+      - design/gdd/rebirth-and-ascension.md
+      - design/gdd/ca-pa-and-traits.md
+    value: 180
+    unit: CA points  # rebirth.csv row 6 rewards ca_min; needs PA >= 160 at default ca_over_pa_ppm (F5, OQ-4)
+    added: 2026-11-16
+  - name: elder_slots_max
+    status: deprecated  # user decision 2026-11-16: Elders are unlimited, no Elder slot gate; buffs bounded by elder_buff_cap_ppm only
+    source: design/gdd/rebirth-and-ascension.md
+    referenced_by:
+      - design/gdd/rebirth-and-ascension.md
+      - design/gdd/member-model.md
+    value: 5
+    unit: members  # was: PROVISIONAL bld_hq effects key elder_slots at HQ 8 (Guild and buildings 30); max-roster fixture = 40 + 5. No longer a gate.
+    added: 2026-11-16
+    revised: 2026-11-16  # was active, value 5; deprecated by Rebirth and Ascension (unlimited Elders)
+  - name: elder_buff_cap_ppm
+    status: active
+    source: design/gdd/rebirth-and-ascension.md
+    referenced_by:
+      - design/gdd/rebirth-and-ascension.md
+    value: 150000
+    unit: ppm  # config.csv key to be added; per-key cap on elder_mod_ppm, both directions
+    added: 2026-11-16
+  - name: elder_trait_share_ppm
+    status: active
+    source: design/gdd/rebirth-and-ascension.md
+    referenced_by:
+      - design/gdd/rebirth-and-ascension.md
+    value: 250000
+    unit: ppm  # config.csv key to be added; share of an Elder's revealed talent/insight/luck trait effects passed to every disciple
+    added: 2026-11-16
+  - name: crafting_event_type_block
+    status: active
+    source: design/gdd/crafting-and-recipes.md
+    referenced_by:
+      - design/gdd/crafting-and-recipes.md
+    value: 2800
+    unit: type_id  # Event bus block 2800-2899; 2801 craft_ordered, 2802 craft_unit_done, 2803 craft_order_done (logged); command type 2801 craft; P5 handler order 2800; fail code 28001
+    added: 2026-11-16
+  - name: craft_gold_ratio
+    status: active
+    source: design/gdd/crafting-and-recipes.md
+    referenced_by:
+      - design/gdd/crafting-and-recipes.md
+    value: 0.45
+    unit: share_of_price  # new config.csv key; must exceed equip_sell_ratio 0.40 (V-CR3) so craft-and-sell never mints gold; replaces GDD 19.4 ~30% proposal; OQ-1 RESOLVED by user 2026-11-16 (value unchanged; recipes.csv to regenerate)
+    added: 2026-11-16
+    revised: 2026-11-16
+  - name: craft_batch_max
+    status: active
+    source: design/gdd/crafting-and-recipes.md
+    referenced_by:
+      - design/gdd/crafting-and-recipes.md
+    value: 10
+    unit: units_per_order  # new config.csv key; orders cannot be cancelled in VS (R6)
+    added: 2026-11-16
+  - name: craft_queue_max
+    status: active
+    source: design/gdd/crafting-and-recipes.md
+    referenced_by:
+      - design/gdd/crafting-and-recipes.md
+    value: 5
+    unit: waiting_orders_per_workshop  # new config.csv key; plus 1 active order per workshop
+    added: 2026-11-16
+  - name: recruitment_event_type_block
+    status: active
+    source: design/gdd/recruitment.md
+    referenced_by:
+      - design/gdd/recruitment.md
+      - design/gdd/onboarding-and-tutorial.md
+    value: 1500
+    unit: type_id  # Event bus R3 block 1500-1599; 1501 recruit_offer_opened, 1502 candidate_accepted (milestone), 1503 recruit_offer_closed, 1504 candidate_rejected; commands 1501 accept_candidate, 1502 reject_candidate, 1503 use_recruit_token (VS); fail codes 15001-15003
+    added: 2026-11-16
+  - name: recruit_offer_interval_min
+    status: active
+    source: design/gdd/recruitment.md
+    referenced_by:
+      - design/gdd/recruitment.md
+    value: 120
+    unit: minutes  # config.csv knob to be added; walk-in offer grid (F1), skipped while an offer is open
+    added: 2026-11-16
+  - name: recruit_offer_size
+    status: active
+    source: design/gdd/recruitment.md
+    referenced_by:
+      - design/gdd/recruitment.md
+    value: 3
+    unit: candidates  # config.csv knob to be added; + bld_scout candidate_extra (VS), capped by recruit_offer_size_max 8
+    added: 2026-11-16
+  - name: recruit_buffer_boost_ppm
+    status: active
+    source: design/gdd/recruitment.md
+    referenced_by:
+      - design/gdd/recruitment.md
+    value: 1000000
+    unit: ppm weight  # config.csv knob to be added (GDD 20 S1 recruit_buffer_boost); added to each buff_role school's weight during a buffer deficit
+    added: 2026-11-16
+  - name: recruit_founding_roster
+    status: active
+    source: design/gdd/recruitment.md
+    referenced_by:
+      - design/gdd/recruitment.md
+      - design/gdd/onboarding-and-tutorial.md
+    value: 5
+    unit: members  # config.csv knob to be added; below this roster size offers re-open on the next tick
+    added: 2026-11-16
+  - name: enhance_event_type_block
+    status: active
+    source: design/gdd/equipment-enhancement.md
+    referenced_by:
+      - design/gdd/equipment-enhancement.md
+    value: 2400
+    unit: type_id  # Event bus block 2400-2499; 2401 enhance_succeeded, 2402 enhance_failed, 2403 enhance_milestone; command 2401 enhance_item, reason codes 100-103
+    added: 2026-11-16
+  - name: enhance_base_per_level
+    status: active
+    source: design/gdd/equipment-enhancement.md
+    referenced_by:
+      - design/gdd/equipment-enhancement.md
+    value: 30
+    unit: gold  # config.csv; per item level per cost unit (F1); safe 10-100
+    added: 2026-11-16
+  - name: enhance_max_lv
+    status: active
+    source: design/gdd/equipment-enhancement.md
+    referenced_by:
+      - design/gdd/equipment-enhancement.md
+      - design/gdd/member-model.md
+    value: 20
+    unit: level  # config.csv; absolute enhancement cap, equals last enhance.csv row
+    added: 2026-11-16
+  - name: skills_event_type_block
+    status: active
+    source: design/gdd/skills.md
+    referenced_by:
+      - design/gdd/skills.md
+    value: 2100
+    unit: type_id  # Event bus R3 block 2100-2199; 2101 skill_level_up, 2102 signature_skill_learned (milestone), 2103 skill_focus_refused
+    added: 2026-11-16
+  - name: skill_xp_share_ppm
+    status: active
+    source: design/gdd/skills.md
+    referenced_by:
+      - design/gdd/skills.md
+    value: 250000
+    unit: ppm  # config.csv knob to be added; share of each effective XP award (XP curve F2) that trains skills; safe 100000-1000000
+    added: 2026-11-16
+  - name: element_counter_mult
+    status: active
+    source: design/gdd/combat.md
+    referenced_by:
+      - design/gdd/combat.md
+    value: 1.25
+    unit: multiplier  # config.csv; F3
+    added: 2026-11-16
+  - name: element_countered_mult
+    status: active
+    source: design/gdd/combat.md
+    referenced_by:
+      - design/gdd/combat.md
+    value: 0.8
+    unit: multiplier  # config.csv; F3
+    added: 2026-11-16
+  - name: element_same_mult
+    status: active
+    source: design/gdd/combat.md
+    referenced_by:
+      - design/gdd/combat.md
+    value: 0.95
+    unit: multiplier  # config.csv; F3
+    added: 2026-11-16
+  - name: monster_dmg_factor
+    status: active
+    source: design/gdd/combat.md
+    referenced_by:
+      - design/gdd/combat.md
+      - design/gdd/zones-grounds-monsters-and-hunt-trips.md
+    value: 0.05
+    unit: multiplier  # sim_params.csv; F1 global scale on monster hits
+    added: 2026-11-16
+  - name: tank_aggro_share
+    status: active
+    source: design/gdd/combat.md
+    referenced_by:
+      - design/gdd/combat.md
+    value: 0.7
+    unit: probability  # sim_params.csv; R10 tank pick chance when a tank is in the pool
+    added: 2026-11-16
+  - name: buffer_atk
+    status: active
+    source: design/gdd/combat.md
+    referenced_by:
+      - design/gdd/combat.md
+      - design/gdd/party.md
+    value: 0.08
+    unit: fraction  # sim_params.csv; R8 group damage bonus with a buffer, no stacking
+    added: 2026-11-16
+  - name: buffer_dmg_reduction
+    status: active
+    source: design/gdd/combat.md
+    referenced_by:
+      - design/gdd/combat.md
+      - design/gdd/party.md
+    value: 0.1
+    unit: fraction  # sim_params.csv; R8 group damage-taken reduction; must stay < 1
+    added: 2026-11-16
+  - name: healer_heal_frac
+    status: active
+    source: design/gdd/combat.md
+    referenced_by:
+      - design/gdd/combat.md
+    value: 0.03
+    unit: fraction of target hp_max  # sim_params.csv; F6
+    added: 2026-11-16
+  - name: fight_time_limit_s
+    status: active
+    source: design/gdd/combat.md
+    referenced_by:
+      - design/gdd/combat.md
+      - design/gdd/zones-grounds-monsters-and-hunt-trips.md
+    value: 600
+    unit: seconds  # hunt fight limit; code constant today, OQ-1
+    added: 2026-11-16
+  - name: rng_domain_combat
+    status: active
+    source: design/gdd/deterministic-rng.md
+    referenced_by:
+      - design/gdd/deterministic-rng.md
+      - design/gdd/combat.md
+      - design/gdd/zones-grounds-monsters-and-hunt-trips.md
+    value: 1
+    unit: domain_id
+    added: 2026-11-16
+  - name: rng_domain_loot
+    status: active
+    source: design/gdd/deterministic-rng.md
+    referenced_by:
+      - design/gdd/deterministic-rng.md
+      - design/gdd/items-and-loot-tables.md
+      - design/gdd/zones-grounds-monsters-and-hunt-trips.md
+    value: 2
+    unit: domain_id
+    added: 2026-11-16
+  - name: rng_domain_spawn
+    status: active
+    source: design/gdd/deterministic-rng.md
+    referenced_by:
+      - design/gdd/deterministic-rng.md
+      - design/gdd/zones-grounds-monsters-and-hunt-trips.md
+    value: 3
+    unit: domain_id
+    added: 2026-11-16
+  - name: rng_domain_hunt_trip
+    status: active
+    source: design/gdd/deterministic-rng.md
+    referenced_by:
+      - design/gdd/deterministic-rng.md
+      - design/gdd/zones-grounds-monsters-and-hunt-trips.md
+    value: 4
+    unit: domain_id
+    added: 2026-11-16
+  - name: rng_domain_offline_sample
+    status: active
+    source: design/gdd/deterministic-rng.md
+    referenced_by:
+      - design/gdd/deterministic-rng.md
+      - design/gdd/zones-grounds-monsters-and-hunt-trips.md
+      - design/gdd/offline-progress.md
+    value: 5
+    unit: domain_id
+    added: 2026-11-16
+  - name: rng_domain_raid
+    status: active
+    source: design/gdd/deterministic-rng.md
+    referenced_by:
+      - design/gdd/deterministic-rng.md
+      - design/gdd/golden-boss-and-guild-raid.md
+    value: 6
+    unit: domain_id
+    added: 2026-11-16
+  - name: rng_domain_golden_boss_pick
+    status: active
+    source: design/gdd/deterministic-rng.md
+    referenced_by:
+      - design/gdd/deterministic-rng.md
+      - design/gdd/golden-boss-and-guild-raid.md
+    value: 7
+    unit: domain_id
+    added: 2026-11-16
+  - name: rng_domain_recruit
+    status: active
+    source: design/gdd/deterministic-rng.md
+    referenced_by:
+      - design/gdd/deterministic-rng.md
+      - design/gdd/recruitment.md
+    value: 8
+    unit: domain_id
+    added: 2026-11-16
+  - name: rng_domain_pa_estimate
+    status: active
+    source: design/gdd/deterministic-rng.md
+    referenced_by:
+      - design/gdd/deterministic-rng.md
+      - design/gdd/ca-pa-and-traits.md
+    value: 9
+    unit: domain_id
+    added: 2026-11-16
+  - name: rng_domain_enhance
+    status: active
+    source: design/gdd/deterministic-rng.md
+    referenced_by:
+      - design/gdd/deterministic-rng.md
+      - design/gdd/equipment-enhancement.md
+    value: 10
+    unit: domain_id
+    added: 2026-11-16
+  - name: rng_domain_ai_tiebreak
+    status: active
+    source: design/gdd/deterministic-rng.md
+    referenced_by:
+      - design/gdd/deterministic-rng.md
+    value: 11
+    unit: domain_id
+    added: 2026-11-16
+  - name: rng_domain_retention
+    status: active
+    source: design/gdd/deterministic-rng.md
+    referenced_by:
+      - design/gdd/deterministic-rng.md
+      - design/gdd/retention-leaving-and-negotiation.md
+    value: 12
+    unit: domain_id
+    added: 2026-11-16
+  - name: rng_domain_crafting
+    status: active
+    source: design/gdd/deterministic-rng.md
+    referenced_by:
+      - design/gdd/deterministic-rng.md
+      - design/gdd/crafting-and-recipes.md
+    value: 13
+    unit: domain_id
+    added: 2026-11-16
+  - name: rng_domain_npc_guild
+    status: active
+    source: design/gdd/deterministic-rng.md
+    referenced_by:
+      - design/gdd/deterministic-rng.md
+      - design/gdd/jianghu-free-agents-and-npc-guilds.md
+    value: 14
+    unit: domain_id
+    added: 2026-11-16
+  - name: rng_domain_tower
+    status: active
+    source: design/gdd/deterministic-rng.md
+    referenced_by:
+      - design/gdd/deterministic-rng.md
+      - design/gdd/endless-tower.md
+    value: 15
+    unit: domain_id
+    added: 2026-11-16
+  - name: tower_event_type_block
+    status: active
+    source: design/gdd/endless-tower.md
+    referenced_by:
+      - design/gdd/endless-tower.md
+    value: 1900
+    unit: type_id  # Event bus + Command layer block 1900-1999; events 1901 tower_run_started, 1902 tower_floor_cleared, 1903 tower_run_ended, 1904 tower_start_refused, 1905 tower_milestone; commands 1901 tower_start, 1902 tower_retreat; handlers P1/P3/P4 order 1900; fail code 19001
+    added: 2026-11-16
+  - name: tower_high_floor
+    status: active
+    source: design/gdd/endless-tower.md
+    referenced_by:
+      - design/gdd/endless-tower.md
+    value: 50
+    unit: floor  # floors above need every member at rebirth tier >= 2 (rebirth.csv unlock_tower_high); sim_params.csv (provisional)
+    added: 2026-11-16
+  - name: rng_domain_arena
+    status: active
+    source: design/gdd/deterministic-rng.md
+    referenced_by:
+      - design/gdd/deterministic-rng.md
+      - design/gdd/arena.md
+    value: 16
+    unit: domain_id
+    added: 2026-11-16
+  - name: arena_event_type_block
+    status: active
+    source: design/gdd/arena.md
+    referenced_by:
+      - design/gdd/arena.md
+    value: 1800
+    unit: type_id  # Event bus + Command layer block 1800-1899; events 1801 arena_bout_resolved, 1802 arena_rank_changed, 1803 arena_daily_reward, 1804 arena_challenge_refused, 1805 arena_new_best; command 1801 arena_challenge; handlers P1/P3/P4 order 1800; fail code 18001
+    added: 2026-11-16
+  - name: arena_loot_source_tag
+    status: active
+    source: design/gdd/arena.md
+    referenced_by:
+      - design/gdd/arena.md
+    value: 3
+    unit: source_tag  # Items and loot R3 guild loot key [0, 3, challenge_ordinal]; next free tag after Endless Tower's 2
+    added: 2026-11-16
+  - name: arena_dmg_scale
+    status: active
+    source: design/gdd/arena.md
+    referenced_by:
+      - design/gdd/arena.md
+    value: 30
+    unit: multiplier  # Combat encounter dmg_scale for arena duels; sim_params.csv (provisional); calibrated vs sim/hunt.fight
+    added: 2026-11-16
+  - name: rng_domain_quest_roll
+    status: active
+    source: design/gdd/deterministic-rng.md
+    referenced_by:
+      - design/gdd/deterministic-rng.md
+      - design/gdd/quests-and-achievements.md
+    value: 17
+    unit: domain_id
+    added: 2026-11-16
+  - name: rng_domain_trait_reveal
+    status: active
+    source: design/gdd/deterministic-rng.md
+    referenced_by:
+      - design/gdd/deterministic-rng.md
+      - design/gdd/ca-pa-and-traits.md
+    value: 18
+    unit: domain_id
+    added: 2026-11-16
+  - name: content_id_none
+    status: active
+    source: design/gdd/data-layer-and-content-pipeline.md
+    referenced_by:
+      - design/gdd/data-layer-and-content-pipeline.md
+    value: 0
+    unit: content_id_num
+    added: 2026-11-16
+  - name: stable_id_max_length
+    status: active
+    source: design/gdd/data-layer-and-content-pipeline.md
+    referenced_by:
+      - design/gdd/data-layer-and-content-pipeline.md
+    value: 48
+    unit: characters
+    added: 2026-11-16
+  - name: sim_version
+    status: active
+    source: design/gdd/sim-core-and-tick-loop.md
+    referenced_by:
+      - design/gdd/sim-core-and-tick-loop.md
+      - design/gdd/dev-tooling-and-parity-harness.md
+      - design/gdd/local-save-and-migration.md
+      - design/gdd/leaderboards-and-anti-cheat.md
+    value: 1
+    unit: integer (uint32)
+    added: 2026-11-16
+  - name: tick_rate
+    status: active
+    source: design/gdd/sim-core-and-tick-loop.md
+    referenced_by:
+      - design/gdd/sim-core-and-tick-loop.md
+      - design/gdd/schools-and-school-change.md
+      - design/gdd/combat.md
+      - design/gdd/local-push-notifications.md
+      - design/gdd/realtime-world-view.md
+      - design/gdd/onboarding-and-tutorial.md
+      - design/gdd/leaderboards-and-anti-cheat.md
+    value: 10
+    unit: ticks_per_second  # value in data/config.csv; valid 1-20 and a divisor of 1,000,000 (this GDD F1)
+    added: 2026-11-16
+  - name: live_catchup_max_ticks
+    status: active
+    source: design/gdd/sim-core-and-tick-loop.md
+    referenced_by:
+      - design/gdd/sim-core-and-tick-loop.md
+    value: 5
+    unit: ticks_per_advance_call  # config.csv key to be added (Data layer OQ); safe 1-20
+    added: 2026-11-16
+  - name: offline_threshold_s
+    status: active
+    source: design/gdd/sim-core-and-tick-loop.md
+    referenced_by:
+      - design/gdd/sim-core-and-tick-loop.md
+      - design/gdd/offline-progress.md
+    value: 60
+    unit: seconds  # provisional (P1 spike sets it); config.csv key to be added; whole seconds 1-600, safe 30-600
+    added: 2026-11-16
+    revised: 2026-11-16  # was 300 (and 30 before that); second design-review
+  - name: command_queue_max
+    status: active
+    source: design/gdd/sim-core-and-tick-loop.md
+    referenced_by:
+      - design/gdd/sim-core-and-tick-loop.md
+      - design/gdd/command-layer.md
+    value: 1000
+    unit: commands  # config.csv key to be added; safe 100-10000
+    added: 2026-11-16
+  - name: event_buffer_hard_cap
+    status: active
+    source: design/gdd/sim-core-and-tick-loop.md
+    referenced_by:
+      - design/gdd/sim-core-and-tick-loop.md
+      - design/gdd/event-bus-and-history-log.md
+    value: 2000
+    unit: events_per_tick  # config.csv knob to be added; safe 500-10000; fatal above, soft warning above value // 2
+    added: 2026-11-16
+    revised: 2026-11-16  # was 10000 fixed constant (100000 before that); second design-review
+  - name: command_drain_max
+    status: active
+    source: design/gdd/sim-core-and-tick-loop.md
+    referenced_by:
+      - design/gdd/sim-core-and-tick-loop.md
+      - design/gdd/command-layer.md
+    value: 25
+    unit: commands_per_tick  # config.csv key to be added; safe 10-1000, <= command_queue_max
+    added: 2026-11-16
+    revised: 2026-11-16  # was 100; third design-review (GDScript per-command cost)
+  - name: handoff_timeout_s
+    status: deprecated  # third design-review 2026-11-16: a pending hand-off has no timeout
+    source: design/gdd/sim-core-and-tick-loop.md
+    referenced_by:
+      - design/gdd/sim-core-and-tick-loop.md
+    value: 30
+    unit: seconds  # fixed constant, not a knob; longest a hand-off may stay pending (R8)
+    added: 2026-11-16
+
+  - name: history_ring_cap
+    status: active
+    source: design/gdd/event-bus-and-history-log.md
+    referenced_by:
+      - design/gdd/event-bus-and-history-log.md
+    value: 10000
+    unit: records  # config.csv knob to be added (OQ-7); safe 100-100000
+    added: 2026-11-16
+  - name: milestone_cap_total
+    status: active
+    source: design/gdd/event-bus-and-history-log.md
+    referenced_by:
+      - design/gdd/event-bus-and-history-log.md
+    value: 4000
+    unit: records  # config.csv knob to be added (OQ-7); safe 100-50000
+    added: 2026-11-16
+  - name: milestone_cap_per_subject
+    status: active
+    source: design/gdd/event-bus-and-history-log.md
+    referenced_by:
+      - design/gdd/rebirth-and-ascension.md
+      - design/gdd/event-bus-and-history-log.md
+    value: 24
+    unit: records  # config.csv knob to be added (OQ-7); safe 2-100
+    added: 2026-11-16
+  - name: milestone_keep_first
+    status: active
+    source: design/gdd/event-bus-and-history-log.md
+    referenced_by:
+      - design/gdd/event-bus-and-history-log.md
+    value: 3
+    unit: records  # config.csv knob to be added (OQ-7); safe 0 to min(milestone_cap_per_subject, milestone_cap_guildwide)-1
+    added: 2026-11-16
+  - name: milestone_cap_guildwide
+    status: active
+    source: design/gdd/event-bus-and-history-log.md
+    referenced_by:
+      - design/gdd/event-bus-and-history-log.md
+    value: 200
+    unit: records  # config.csv knob to be added (OQ-7); safe 10-1000; subject 0's limit
+    added: 2026-11-16
+  - name: milestone_subjects_planned
+    status: active
+    source: design/gdd/event-bus-and-history-log.md
+    referenced_by:
+      - design/gdd/event-bus-and-history-log.md
+      - design/gdd/member-model.md
+    value: 1000
+    unit: subjects  # provisional planning bound for F5 sizing; Member model (8) confirms (OQ-4)
+    added: 2026-11-16
+  - name: away_span_target_s
+    status: active
+    source: design/gdd/event-bus-and-history-log.md
+    referenced_by:
+      - design/gdd/event-bus-and-history-log.md
+    value: 86400
+    unit: seconds  # planning constant for F4, not a config key
+    added: 2026-11-16
+  - name: emit_record_stride
+    status: active
+    source: design/gdd/event-bus-and-history-log.md
+    referenced_by:
+      - design/gdd/event-bus-and-history-log.md
+    value: 5
+    unit: ints  # type_id,a,b,c,d in the core buffer; a change is a sim_version bump
+    added: 2026-11-16
+  - name: history_record_stride
+    status: active
+    source: design/gdd/event-bus-and-history-log.md
+    referenced_by:
+      - design/gdd/event-bus-and-history-log.md
+    value: 6
+    unit: ints  # tick,type_id,a,b,c,d in the history log; a change is a sim_version bump
+    added: 2026-11-16
+  - name: max_event_subscribers
+    status: active
+    source: design/gdd/event-bus-and-history-log.md
+    referenced_by:
+      - design/gdd/event-bus-and-history-log.md
+      - design/gdd/analytics.md
+    value: 16
+    unit: subscribers  # validator limit that bounds F1
+    added: 2026-11-16
+  - name: school_join_level
+    status: active
+    source: design/gdd/schools-and-school-change.md
+    referenced_by:
+      - design/gdd/schools-and-school-change.md
+      - design/gdd/xp-and-level-pacing-curve.md
+      - design/gdd/recruitment.md
+    value: 10
+    unit: level  # config.csv knob to be added; safe 1-20 and <= rebirth-0 cap; read by Recruitment, XP curve, Offline
+    added: 2026-11-16
+  - name: school_change_skill_keep_pct
+    status: active
+    source: design/gdd/schools-and-school-change.md
+    referenced_by:
+      - design/gdd/rebirth-and-ascension.md
+      - design/gdd/schools-and-school-change.md
+    value: 30
+    unit: percent  # config.csv knob to be added; safe 0-49, below the smallest rebirth skill_keep_pct (50)
+    added: 2026-11-16
+  - name: schools_event_type_block
+    status: active
+    source: design/gdd/schools-and-school-change.md
+    referenced_by:
+      - design/gdd/schools-and-school-change.md
+      - design/gdd/command-layer.md
+    value: 2000
+    revised: 2026-11-16  # consistency-check: referenced_by dropped event-bus-and-history-log.md; 2nd pass added command-layer.md, commands, codes, 2004 scope (was: 2004 for every refusal)
+    unit: type_id  # Event bus R3 block 2000-2099; 2001 school_joined, 2002 school_change_started, 2003 school_changed, 2004 school_change_refused (sim-origin refusals only); commands 2001-2003 via Command layer; reason codes 101-107
+    added: 2026-11-16
+
+  - name: xp_event_type_block
+    status: active
+    source: design/gdd/xp-and-level-pacing-curve.md
+    referenced_by:
+      - design/gdd/xp-and-level-pacing-curve.md
+      - design/gdd/ca-pa-and-traits.md
+    value: 2200
+    unit: type_id  # Event bus R3 block 2200-2299; 2201 member_level_up, 2202 member_level_capped
+    added: 2026-11-16
+  - name: award_base_max_milli
+    status: active
+    source: design/gdd/xp-and-level-pacing-curve.md
+    referenced_by:
+      - design/gdd/xp-and-level-pacing-curve.md
+      - design/gdd/zones-grounds-monsters-and-hunt-trips.md
+    value: 1099511627776
+    unit: milli-XP  # 2^40; largest base_milli award() accepts (error 2201 above); keeps F2 intermediates under int64
+    added: 2026-11-16
+  - name: cloud_slot_count
+    status: active
+    source: design/gdd/account-and-cloud-save.md
+    referenced_by:
+      - design/gdd/account-and-cloud-save.md
+    value: 1
+    unit: slots  # per account (GDD 8.1); Premium extra slots not designed (OQ-5)
+    added: 2026-11-16
+  - name: cloud_upload_min_interval_s
+    status: active
+    source: design/gdd/account-and-cloud-save.md
+    referenced_by:
+      - design/gdd/account-and-cloud-save.md
+    value: 300
+    unit: seconds  # F1 throttle; proposed config.csv key (OQ-8)
+    added: 2026-11-16
+  - name: cloud_divergence_warn_ticks
+    status: active
+    source: design/gdd/account-and-cloud-save.md
+    referenced_by:
+      - design/gdd/account-and-cloud-save.md
+    value: 36000
+    unit: ticks  # F4; 1 h of world time at 10 Hz (Sim core F4)
+    added: 2026-11-16
+  - name: l10n_compact_threshold
+    status: active
+    source: design/gdd/localization.md
+    referenced_by:
+      - design/gdd/localization.md
+    value: 10000
+    unit: display_units  # F2; below this numbers show in full; proposed config.csv key
+    added: 2026-11-16
+  - name: ui_string_key_prefix
+    status: active
+    source: design/gdd/localization.md
+    referenced_by:
+      - design/gdd/localization.md
+      - design/gdd/onboarding-and-tutorial.md
+    value: "ui_"
+    unit: id_prefix  # R3; content IDs must never start with it (OQ-2, Data layer)
+    added: 2026-11-16
+  - name: member_event_type_block
+    status: active
+    source: design/gdd/member-model.md
+    referenced_by:
+      - design/gdd/member-model.md
+    value: 800
+    unit: type_id  # Event bus R3 block 800-899; 801 member_joined (milestone), 802 member_removed, 803 member_renamed, 804 member_equipped, 805 member_unequipped
+    added: 2026-11-16
+  - name: member_name_max_len
+    status: active
+    source: design/gdd/member-model.md
+    referenced_by:
+      - design/gdd/guild-screens.md
+      - design/gdd/member-model.md
+    value: 20
+    unit: code_points  # new config key (OQ-11)
+    added: 2026-11-16
+  - name: buildings_event_type_block
+    status: active
+    source: design/gdd/guild-and-buildings.md
+    referenced_by:
+      - design/gdd/guild-and-buildings.md
+    value: 3000
+    unit: type_id  # Event bus R3 block 3000-3099; 3001 build_queued, 3002 build_started, 3003 build_completed (ring), 3004 guild_level_up (milestone, subject 0), 3005 build_cancelled, 3006 build_refused, 3007 building_decay_changed (ring)
+    added: 2026-11-16
+  - name: buildings_total_gold
+    status: active
+    source: design/gdd/guild-and-buildings.md
+    referenced_by:
+      - design/gdd/guild-and-buildings.md
+    value: 44213601
+    unit: gold  # F5: sum of buildings.csv cost_gold, all 26 kinds to max (JX1 GDD 19.4 "44.2 M"); derived from data, recompute on data change
+    added: 2026-11-16
+
+  - name: save_schema_version
+    status: active
+    source: design/gdd/local-save-and-migration.md
+    referenced_by:
+      - design/gdd/local-save-and-migration.md
+      - design/gdd/ai-text-layer.md
+    value: 1
+    unit: integer  # SAVE_SCHEMA_VERSION; +1 per save format change, each wave that adds state (R14)
+    added: 2026-11-16
+  - name: autosave_interval_s
+    status: active
+    source: design/gdd/local-save-and-migration.md
+    referenced_by:
+      - design/gdd/local-save-and-migration.md
+    value: 60
+    unit: seconds  # foreground wall time; safe 15-300; bounds orders lost on a crash (F3)
+    added: 2026-11-16
+  - name: save_backup_generations
+    status: active
+    source: design/gdd/local-save-and-migration.md
+    referenced_by:
+      - design/gdd/local-save-and-migration.md
+    value: 3
+    unit: files  # rotating backups bak1..N; safe 1-10
+    added: 2026-11-16
+  - name: save_max_uncompressed_bytes
+    status: active
+    source: design/gdd/local-save-and-migration.md
+    referenced_by:
+      - design/gdd/local-save-and-migration.md
+    value: 33554432
+    unit: bytes  # 32 MiB hard limit on payload; F4 worst case about 15 MB
+    added: 2026-11-16
+  - name: host_pending_max
+    status: active
+    source: design/gdd/command-layer.md
+    referenced_by:
+      - design/gdd/guild-screens.md
+      - design/gdd/command-layer.md
+    value: 200
+    unit: commands  # config.csv key to be added; safe 25 - command_queue_max/2 (Command layer F1)
+    added: 2026-11-16
+  - name: command_layer_event_type_block
+    status: active
+    source: design/gdd/command-layer.md
+    referenced_by:
+      - design/gdd/command-layer.md
+    value: 500
+    unit: type_id  # Event bus R3 block 500-599; 501 command_applied, 502 command_refused (both delivered, not logged)
+    added: 2026-11-16
+  - name: command_type_id_block_rule
+    status: active
+    source: design/gdd/command-layer.md
+    referenced_by:
+      - design/gdd/command-layer.md
+      - design/gdd/onboarding-and-tutorial.md
+    value: 100
+    unit: type_ids_per_owner  # command type IDs = owner system number x 100 .. +99, same block as the owner's Event bus block; 1-99 reserved for the Command layer
+    added: 2026-11-16
+  - name: cmd_args_max
+    status: active
+    source: design/gdd/command-layer.md
+    referenced_by:
+      - design/gdd/command-layer.md
+    value: 6
+    unit: int_args_per_command  # constant; envelope format, change is a sim_version bump
+    added: 2026-11-16
+  - name: income_ref_per_level
+    status: active
+    source: design/gdd/gold-economy.md
+    referenced_by:
+      - design/gdd/gold-economy.md
+      - design/gdd/schools-and-school-change.md
+      - design/gdd/equipment-enhancement.md
+      - design/gdd/retention-leaving-and-negotiation.md
+    value: 1000
+    unit: gold per level per hour  # config.csv; calibration target and pricing yardstick (F4), generates no gold
+    added: 2026-11-16
+  - name: guild_tax_pct
+    status: active
+    source: design/gdd/gold-economy.md
+    referenced_by:
+      - design/gdd/gold-economy.md
+      - design/gdd/retention-leaving-and-negotiation.md
+    value: 0.1
+    unit: fraction  # config.csv tax rate; converted to 100000 ppm at boot; MVP: flat fixed rate, no slider, no mood (user decision 2026-11-16; was: live only in Vertical Slice); VS: slider default, capped by bld_market tax_rate_cap
+    added: 2026-11-16
+    revised: 2026-11-16
+  - name: lb_price_recruit_token
+    status: active
+    source: design/gdd/gold-economy.md
+    referenced_by:
+      - design/gdd/recruitment.md
+    value: 150
+    unit: linh_bao  # config.csv (new); Linh Bao shop price of Chieu Hien Lenh (Gold R16, F9 ~0.39 week of 382/week quest faucet)
+    added: 2026-11-16
+  - name: lb_price_enhance_ward
+    status: active
+    source: design/gdd/gold-economy.md
+    referenced_by:
+      - design/gdd/equipment-enhancement.md
+    value: 60
+    unit: linh_bao  # config.csv (new); Linh Bao shop price of item_enhance_ward (Gold R16, F9 ~0.16 week)
+    added: 2026-11-16
+  - name: lb_price_school_token
+    status: active
+    source: design/gdd/gold-economy.md
+    referenced_by:
+      - design/gdd/schools-and-school-change.md
+    value: 200
+    unit: linh_bao  # config.csv (new); Linh Bao shop price of item_school_token (Gold R16, F9 ~0.52 week)
+    added: 2026-11-16
+  - name: guild_upkeep_per_level_day
+    status: active
+    source: design/gdd/gold-economy.md
+    referenced_by:
+      - design/gdd/gold-economy.md
+    value: 700
+    unit: gold per member level per day  # config.csv (F3); about 2.9% of AFK income
+    added: 2026-11-16
+  - name: shop_fund_share_pct
+    status: active
+    source: design/gdd/gold-economy.md
+    referenced_by:
+      - design/gdd/gold-economy.md
+      - design/gdd/guild-market-and-trade-orders.md
+    value: 0.3
+    unit: fraction  # config.csv key to be added (F2); PROVISIONAL until S3 calibration
+    added: 2026-11-16
+  - name: starting_fund_gold
+    status: active
+    source: design/gdd/gold-economy.md
+    referenced_by:
+      - design/gdd/gold-economy.md
+    value: 2000
+    unit: gold  # config.csv key to be added; covers level-1 Thien Duong + Duoc Phong + Cho Bang (1750)
+    added: 2026-11-16
+  - name: gold_balance_max
+    status: active
+    source: design/gdd/gold-economy.md
+    referenced_by:
+      - design/gdd/gold-economy.md
+    value: 1000000000000000
+    unit: gold  # 1e15 cap per balance; excess burned as balance_clamp
+    added: 2026-11-16
+  - name: gold_op_max
+    status: active
+    source: design/gdd/gold-economy.md
+    referenced_by:
+      - design/gdd/rebirth-and-ascension.md
+      - design/gdd/gold-economy.md
+      - design/gdd/guild-market-and-trade-orders.md
+    value: 1000000000000
+    unit: gold  # 1e12 largest single ledger amount; keeps ppm products under 2^63
+    added: 2026-11-16
+  - name: gold_event_type_block
+    status: active
+    source: design/gdd/gold-economy.md
+    referenced_by:
+      - design/gdd/gold-economy.md
+    value: 2700
+    unit: type_id  # Event bus block 2700-2799; 2701 member_paid .. 2711 ledger_mismatch (F8); P4 handler order 2700
+    added: 2026-11-16
+  - name: items_event_type_block
+    status: active
+    source: design/gdd/items-and-loot-tables.md
+    referenced_by:
+      - design/gdd/items-and-loot-tables.md
+    value: 2600
+    unit: type_id  # Event bus block 2600-2699; 2601 loot_handed_in, 2602 epic_loot, 2603 item_awarded, 2604 item_award_refused, 2605 item_auto_equipped, 2606 rare_haul; P4 handler order 2600
+    added: 2026-11-16
+  - name: pa_max
+    status: active
+    source: design/gdd/ca-pa-and-traits.md
+    referenced_by:
+      - design/gdd/ca-pa-and-traits.md
+      - design/gdd/xp-and-level-pacing-curve.md
+      - design/gdd/recruitment.md
+    value: 200
+    unit: PA points  # config.csv pa_max; top of the PA scale (GDD 5.1)
+    added: 2026-11-16
+  - name: ca_max
+    status: active
+    source: design/gdd/ca-pa-and-traits.md
+    referenced_by:
+      - design/gdd/rebirth-and-ascension.md
+      - design/gdd/ca-pa-and-traits.md
+    value: 200
+    unit: CA points  # config.csv ca_max; top of the CA scale; Ascension gate CA >= 180 (GDD 6.10)
+    added: 2026-11-16
+  - name: max_traits
+    status: active
+    source: design/gdd/ca-pa-and-traits.md
+    referenced_by:
+      - design/gdd/ca-pa-and-traits.md
+      - design/gdd/member-model.md
+      - design/gdd/recruitment.md
+    value: 3
+    unit: traits per member  # config.csv max_traits; Recruitment generates 1..max_traits (0 in MVP)
+    added: 2026-11-16
+  - name: ca_pa_event_type_block
+    status: active
+    source: design/gdd/ca-pa-and-traits.md
+    referenced_by:
+      - design/gdd/ca-pa-and-traits.md
+    value: 900
+    unit: type_id  # Event bus R3 block 900-999; 901 pa_estimate_narrowed, 902 pa_exact_revealed, 903 trait_revealed (milestone), 904 trait_added (milestone)
+    added: 2026-11-16
+  - name: hunt_event_type_block
+    status: active
+    source: design/gdd/zones-grounds-monsters-and-hunt-trips.md
+    referenced_by:
+      - design/gdd/zones-grounds-monsters-and-hunt-trips.md
+      - design/gdd/onboarding-and-tutorial.md
+    value: 1100
+    unit: type_id  # Event bus R3 block 1100-1199; 1101 hunt_trip_started, 1102 hunt_monster_killed, 1103 hunt_member_downed, 1104 hunt_trip_ended, 1105 zone_first_entered (milestone)
+    added: 2026-11-16
+  - name: hunt_p3_order
+    status: active
+    source: design/gdd/zones-grounds-monsters-and-hunt-trips.md
+    referenced_by:
+      - design/gdd/zones-grounds-monsters-and-hunt-trips.md
+    value: 1100
+    unit: handler_order  # Sim core R4 register(P3, 1100, "hunt")
+    added: 2026-11-16
+  - name: golden_boss_interval_min
+    status: active
+    source: design/gdd/golden-boss-and-guild-raid.md
+    referenced_by:
+      - design/gdd/golden-boss-and-guild-raid.md
+      - design/gdd/local-push-notifications.md
+      - design/gdd/leaderboards-and-anti-cheat.md
+    value: 60
+    unit: minutes  # config.csv; R1 hourly slot, anchored due tick
+    added: 2026-11-16
+  - name: golden_boss_backlog_max
+    status: active
+    source: design/gdd/golden-boss-and-guild-raid.md
+    referenced_by:
+      - design/gdd/golden-boss-and-guild-raid.md
+      - design/gdd/offline-progress.md
+      - design/gdd/local-push-notifications.md
+    value: 3
+    unit: raids  # config.csv; R16 offline backlog cap, also R14 queued slot cap
+    added: 2026-11-16
+  - name: raid_min_level_ratio
+    status: active
+    source: design/gdd/golden-boss-and-guild-raid.md
+    referenced_by:
+      - design/gdd/golden-boss-and-guild-raid.md
+      - design/gdd/schools-and-school-change.md
+    value: 0.5
+    revised: 2026-11-16  # consistency-check: schools edge case aligned to boss level (was: read as guild level there)
+    unit: fraction  # config.csv; F2 min member level = ceil(ratio * boss_level)
+    added: 2026-11-16
+  - name: raid_hp_mult
+    status: active
+    source: design/gdd/golden-boss-and-guild-raid.md
+    referenced_by:
+      - design/gdd/golden-boss-and-guild-raid.md
+    value: 6
+    unit: multiplier  # sim_params.csv; F1
+    added: 2026-11-16
+  - name: raid_time_limit_s
+    status: active
+    source: design/gdd/golden-boss-and-guild-raid.md
+    referenced_by:
+      - design/gdd/golden-boss-and-guild-raid.md
+      - design/gdd/audio.md   # raid_music_timeout_s must exceed it
+    value: 300
+    unit: seconds  # sim_params.csv; Combat time_limit_s for raids
+    added: 2026-11-16
+  - name: golden_boss_event_type_block
+    status: active
+    source: design/gdd/golden-boss-and-guild-raid.md
+    referenced_by:
+      - design/gdd/golden-boss-and-guild-raid.md
+      - design/gdd/local-push-notifications.md
+    value: 1400
+    unit: type_id  # Event bus block 1400-1499; 1401 announced .. 1408 member_rewarded
+    added: 2026-11-16
+  - name: pa_lens_weekly_free
+    status: active
+    source: design/gdd/in-app-purchases.md
+    referenced_by:
+      - design/gdd/in-app-purchases.md
+      - design/gdd/quests-and-achievements.md
+    value: 1
+    unit: lenses/week  # config.csv; GDD 11.5 free Thien Co Kinh; semantics owner will be Quests (25), not designed yet
+    added: 2026-11-16
+  - name: pa_lens_stock_cap
+    status: active
+    source: design/gdd/in-app-purchases.md
+    referenced_by:
+      - design/gdd/in-app-purchases.md
+      - design/gdd/quests-and-achievements.md
+    value: 5
+    unit: lenses  # config.csv; caps FREE grants only, paid deliveries ignore it (IAP R9, PROVISIONAL for Quests 25)
+    added: 2026-11-16
+  - name: iap_command_type_block
+    status: active
+    source: design/gdd/in-app-purchases.md
+    referenced_by:
+      - design/gdd/in-app-purchases.md
+    value: 3400
+    unit: type_id  # Command layer block; 3401 grant_store_item, 3402 revoke_store_item; reason codes 101-103
+    revised: 2026-11-16  # consistency-check: ids confirmed (was PROVISIONAL)
+    added: 2026-11-16
+  - name: entitlement_command_type_block
+    status: active
+    source: design/gdd/entitlement-and-feature-flags.md
+    referenced_by:
+      - design/gdd/entitlement-and-feature-flags.md
+    value: 3200
+    unit: type_id  # Command layer + Event bus block 3200-3299; cmd 3201 set_entitlement(flags 0-3, source 0-4); events 3201 entitlement_changed, 3202 trial_started, 3203 trial_ended (PROVISIONAL)
+    added: 2026-11-16
+  - name: provisional_grace_h
+    status: active
+    source: design/gdd/entitlement-and-feature-flags.md
+    referenced_by:
+      - design/gdd/entitlement-and-feature-flags.md
+    value: 72
+    unit: hours  # config.csv key to be added; F2 provisional Premium/Nhan window; keep equal to IAP store_finalize_deadline_h
+    added: 2026-11-16
+  - name: entitlement_refresh_min
+    status: active
+    source: design/gdd/entitlement-and-feature-flags.md
+    referenced_by:
+      - design/gdd/entitlement-and-feature-flags.md
+    value: 60
+    unit: minutes  # config.csv key to be added; R7 foreground ledger refresh period
+    added: 2026-11-16
+  - name: trial_max_h
+    status: active
+    source: design/gdd/entitlement-and-feature-flags.md
+    referenced_by:
+      - design/gdd/entitlement-and-feature-flags.md
+    value: 48
+    unit: hours  # config.csv key to be added; F4 longest single feature trial; Quests (25) duration_h must be <=
+    added: 2026-11-16
+  - name: offline_cap_free_h
+    status: active
+    source: design/gdd/offline-progress.md
+    referenced_by:
+      - design/gdd/offline-progress.md
+      - design/gdd/local-push-notifications.md
+      - design/gdd/leaderboards-and-anti-cheat.md
+      - design/gdd/entitlement-and-feature-flags.md
+      - design/gdd/sim-core-and-tick-loop.md
+    value: 12
+    unit: hours  # config.csv (exists, still 8 until data change); F2 the ONE cap for every player (was 8, Free only; user decision 2026-11-16 equal ranked cap, offline-progress.md R4)
+    added: 2026-11-16
+    revised: 2026-11-16
+  - name: offline_cap_premium_h
+    status: deprecated
+    source: design/gdd/offline-progress.md
+    referenced_by:
+      - design/gdd/offline-progress.md
+      - design/gdd/local-push-notifications.md
+      - design/gdd/entitlement-and-feature-flags.md
+      - design/gdd/leaderboards-and-anti-cheat.md
+    value: 24
+    unit: hours  # DEPRECATED 2026-11-16 (offline-progress.md R4): Premium gets no extra offline time; not read; remove from config.csv
+    added: 2026-11-16
+    revised: 2026-11-16
+  - name: offline_slice_s
+    status: active
+    source: design/gdd/offline-progress.md
+    referenced_by:
+      - design/gdd/offline-progress.md
+    value: 7200
+    unit: seconds  # config.csv key to be added; F3, reference chunk_s; safe 1800-14400
+    added: 2026-11-16
+  - name: offline_sample_trips
+    status: active
+    source: design/gdd/offline-progress.md
+    referenced_by:
+      - design/gdd/offline-progress.md
+    value: 4
+    unit: trips  # config.csv key to be added; F4 samples per group per slice; safe 2-8
+    added: 2026-11-16
+  - name: offline_clock_skew_tolerance_s
+    status: active
+    source: design/gdd/offline-progress.md
+    referenced_by:
+      - design/gdd/offline-progress.md
+      - design/gdd/leaderboards-and-anti-cheat.md
+    value: 300
+    unit: seconds  # config.csv key to be added; R3.5 clock_skew_flag for Leaderboards
+    added: 2026-11-16
+  - name: offline_event_type_block
+    status: active
+    source: design/gdd/offline-progress.md
+    referenced_by:
+      - design/gdd/offline-progress.md
+    value: 3100
+    unit: type_id  # Event bus block 3100-3199; 3101 offline_resolved, 3102 offline_member_summary
+    added: 2026-11-16
+  - name: market_event_type_block
+    status: active
+    source: design/gdd/guild-market-and-trade-orders.md
+    referenced_by:
+      - design/gdd/guild-market-and-trade-orders.md
+    value: 2900
+    unit: type_id  # Event bus block 2900-2999; 2901 catalogue_sale .. 2909 trade_order_unfunded; commands 2901-2906; P1 and P4 handler order 2900; fail code 29001
+    added: 2026-11-16
+  - name: order_bounty_min_pct
+    status: active
+    source: design/gdd/guild-market-and-trade-orders.md
+    referenced_by:
+      - design/gdd/guild-market-and-trade-orders.md
+    value: 0.5
+    unit: ratio  # of material base_price; config.csv knob to add (OQ-11); safe 0.1-1.0; equals mat_sell_ratio so a bounty at least doubles hand-in pay
+    added: 2026-11-16
+  - name: order_bounty_max_pct
+    status: active
+    source: design/gdd/guild-market-and-trade-orders.md
+    referenced_by:
+      - design/gdd/guild-market-and-trade-orders.md
+    value: 3.0
+    unit: ratio  # of material base_price; config.csv knob to add (OQ-11); safe 1.0-10.0
+    added: 2026-11-16
+  - name: listing_decay_pct_per_day
+    status: active
+    source: design/gdd/guild-market-and-trade-orders.md
+    referenced_by:
+      - design/gdd/guild-market-and-trade-orders.md
+    value: 0.05
+    unit: ratio_per_game_day  # linear stock-listing discount after listing_grace_days (1); config.csv knob to add; 0 disables
+    added: 2026-11-16
+  - name: market_buys_per_member_day
+    status: active
+    source: design/gdd/guild-market-and-trade-orders.md
+    referenced_by:
+      - design/gdd/guild-market-and-trade-orders.md
+    value: 6
+    unit: purchases  # per member per game day; config.csv knob to add; safe 1-24
+    added: 2026-11-16
+
+  - name: party_max
+    status: active
+    source: design/gdd/party.md
+    referenced_by:
+      - design/gdd/party.md
+      - design/gdd/zones-grounds-monsters-and-hunt-trips.md
+      - design/gdd/combat.md
+    value: 5
+    unit: members  # config.csv; locked by JX1_Tycoon_GDD.md section 2
+    added: 2026-11-16
+  - name: party_event_type_block
+    status: active
+    source: design/gdd/party.md
+    referenced_by:
+      - design/gdd/party.md
+    value: 1300
+    unit: type_id  # Event bus R3 / Command layer R2 block 1300-1399; events 1301-1307, commands 1301-1311
+    added: 2026-11-16
+  - name: party_p2_order
+    status: deprecated
+    source: design/gdd/party.md
+    referenced_by:
+      - design/gdd/party.md
+    value: 1150
+    unit: handler_order  # Sim core R4 register(P2, 1150, "party"); must run before Utility AI (1200, provisional)
+    added: 2026-11-16
+    revised: 2026-11-16  # deprecated same day by party.md: Party registers no P2 handler; Member state machine calls it in its P2 pass
+  - name: retention_event_type_block
+    status: active
+    source: design/gdd/retention-leaving-and-negotiation.md
+    referenced_by:
+      - design/gdd/retention-leaving-and-negotiation.md
+    value: 1600
+    unit: type_id  # Event bus R3 block 1600-1699; 1601 leave_requested (milestone), 1602 leave_request_answered, 1603 member_recuperating, 1604 member_leaving (milestone), 1605 contract_changed, 1606 bond_formed, 1607 mood_alert, 1608 chain_mood_hit; commands 1601-1603
+    added: 2026-11-16
+  - name: leave_threshold_base
+    status: active
+    source: design/gdd/retention-leaving-and-negotiation.md
+    referenced_by:
+      - design/gdd/retention-leaving-and-negotiation.md
+    value: 30
+    unit: loyalty points  # config.csv; traits.csv leave_threshold shifts it (t_loyal -15, t_ambitious +10, t_wanderer +15); clamp 5-80
+    added: 2026-11-16
+  - name: loyalty_join
+    status: active
+    source: design/gdd/retention-leaving-and-negotiation.md
+    referenced_by:
+      - design/gdd/retention-leaving-and-negotiation.md
+    value: 60
+    unit: loyalty points  # config.csv; starting loyalty at hire; returners add 100 x loyalty_gain_return
+    added: 2026-11-16
+  - name: notif_quiet_start_min
+    status: active
+    source: design/gdd/local-push-notifications.md
+    referenced_by:
+      - design/gdd/local-push-notifications.md
+    value: 1320
+    unit: minute_of_day  # config.csv (new); default 22:00 local, player-editable in Settings (45); R7/F5
+    added: 2026-11-16
+  - name: notif_quiet_end_min
+    status: active
+    source: design/gdd/local-push-notifications.md
+    referenced_by:
+      - design/gdd/local-push-notifications.md
+    value: 480
+    unit: minute_of_day  # config.csv (new); default 08:00 local; equal to start = no quiet hours
+    added: 2026-11-16
+  - name: notif_max_per_absence
+    status: active
+    source: design/gdd/local-push-notifications.md
+    referenced_by:
+      - design/gdd/local-push-notifications.md
+    value: 2
+    unit: notifications  # config.csv (new); scheduled per suspension, R8
+    added: 2026-11-16
+  - name: volume_slider_step
+    status: active
+    source: design/gdd/settings.md
+    referenced_by:
+      - design/gdd/settings.md
+    value: 5
+    unit: slider_points  # 0-100 volume sliders; proposed config.csv key (settings OQ-2)
+    added: 2026-11-16
+  - name: settings_write_debounce_ms
+    status: active
+    source: design/gdd/settings.md
+    referenced_by:
+      - design/gdd/settings.md
+    value: 1000
+    unit: milliseconds  # F2; proposed config.csv key (settings OQ-2)
+    added: 2026-11-16
+  - name: analytics_subscriber_order
+    status: active
+    source: design/gdd/analytics.md
+    referenced_by:
+      - design/gdd/analytics.md
+    value: 3700
+    unit: subscriber_order  # Event bus R4 subscribe("analytics", 3700, allowlist, tap); pure observer, no type block, no fail codes; registered only by the interactive host
+    added: 2026-11-16
+  - name: analytics_queue_cap_records
+    status: active
+    source: design/gdd/analytics.md
+    referenced_by:
+      - design/gdd/analytics.md
+    value: 5000
+    unit: records  # host-side outbound queue cap (R7); not a sim value, storage per analytics OQ-2
+    added: 2026-11-16
+  - name: ai_text_cache_cap_kb
+    status: active
+    source: design/gdd/ai-text-layer.md
+    referenced_by:
+      - design/gdd/ai-text-layer.md
+    value: 1024
+    unit: kilobytes  # F7 bound on cached LLM text in the save (section PROVISIONAL, ai-text OQ-2); presentation data, not sim state
+    added: 2026-11-16
+  - name: ai_text_max_chars_bio
+    status: active
+    source: design/gdd/ai-text-layer.md
+    referenced_by:
+      - design/gdd/ai-text-layer.md
+    value: 600
+    unit: characters  # F3; others chron 800, advice 300, event 200, nego 160; screens size text areas to these
+    added: 2026-11-16
+  - name: view_full_sprites_max
+    status: active
+    source: design/gdd/realtime-world-view.md
+    referenced_by:
+      - design/gdd/realtime-world-view.md
+      - design/gdd/combat.md
+      - design/gdd/golden-boss-and-guild-raid.md
+      - design/gdd/endless-tower.md
+    value: 15
+    unit: sprites  # presentation-only cap on full paper-doll sprites (F4); GDD 6.13 "<= 15"; Golden Boss calls it raid_full_sprites; P1 spike sets it; safe 5-40; must not enter the sim content hash
+    added: 2026-11-16
+  - name: view_damage_numbers_max
+    status: active
+    source: design/gdd/realtime-world-view.md
+    referenced_by:
+      - design/gdd/realtime-world-view.md
+      - design/gdd/combat.md
+    value: 20
+    unit: numbers_on_screen  # presentation-only cap (F5), Combat V/A 4 proposed 20; safe 5-60
+    added: 2026-11-16
+  - name: onboarding_event_type_block
+    status: active
+    source: design/gdd/onboarding-and-tutorial.md
+    referenced_by:
+      - design/gdd/onboarding-and-tutorial.md
+    value: 4400
+    unit: type_id  # Event bus R3 / Command layer block 4400-4499; events 4401 onboarding_step_completed (ring, ring_per_day 63), 4402 onboarding_ended (ring, 1); commands 4401 onboarding_ack, 4402 onboarding_skip; reason codes 101-104; subscriber order 4400; P5 handler order 4400
+    added: 2026-11-16
+  - name: newbie_xp_ppm
+    status: active
+    source: design/gdd/onboarding-and-tutorial.md
+    referenced_by:
+      - design/gdd/onboarding-and-tutorial.md
+      - design/gdd/zones-grounds-monsters-and-hunt-trips.md
+    value: 3000000
+    unit: ppm  # proposed config.csv key (OQ-1); x3 hunt kill XP while the newbie window is open; safe 1,000,000-5,000,000; applied by Hunt as a source-side multiplier (XP R5; Zones F1 newbie window, live kills only)
+    revised: 2026-11-16  # consistency-check: Onboarding OQ-2 resolved (was PROVISIONAL)
+    added: 2026-11-16
+  - name: newbie_window_s
+    status: active
+    source: design/gdd/onboarding-and-tutorial.md
+    referenced_by:
+      - design/gdd/onboarding-and-tutorial.md
+    value: 1800
+    unit: simulated_seconds  # proposed config.csv key (OQ-1); counts ticks run, not hand-off gaps (R13); x tick_rate = 18,000 ticks; safe 0-7,200
+    added: 2026-11-16
+  - name: audio_cue_tier_priorities
+    status: active
+    source: design/gdd/audio.md
+    referenced_by:
+      - design/gdd/audio.md
+      - design/gdd/golden-boss-and-guild-raid.md
+      - design/gdd/zones-grounds-monsters-and-hunt-trips.md
+      - design/gdd/items-and-loot-tables.md
+      - design/gdd/crafting-and-recipes.md
+      - design/gdd/ca-pa-and-traits.md
+      - design/gdd/rebirth-and-ascension.md
+      - design/gdd/command-layer.md
+    value: 4
+    unit: tiers  # R4: T1 Alert 100, T2 Milestone 80-89 (ascension 89 highest non-warning), T3 Feedback 60, T4 Ambient 40; ui bus separate, refusal -6 dB
+    added: 2026-11-16
+  - name: raid_music_timeout_s
+    status: active
+    source: design/gdd/audio.md
+    referenced_by:
+      - design/gdd/audio.md
+    value: 360
+    unit: seconds  # R8; presentation-only; must exceed raid_time_limit_s (300); safe 310-600
+    added: 2026-11-16
+  - name: lb_season_length_days
+    status: active
+    source: design/gdd/leaderboards-and-anti-cheat.md
+    referenced_by:
+      - design/gdd/leaderboards-and-anti-cheat.md
+    value: 28
+    unit: days  # server config; F5; safe 7-90
+    added: 2026-11-16
+  - name: lb_verify_top_n
+    status: active
+    source: design/gdd/leaderboards-and-anti-cheat.md
+    referenced_by:
+      - design/gdd/leaderboards-and-anti-cheat.md
+    value: 100
+    unit: positions  # server config; R9 top positions are verified-only; safe 10-1,000
+    added: 2026-11-16
+  - name: lb_enroll_grace_days
+    status: active
+    source: design/gdd/leaderboards-and-anti-cheat.md
+    referenced_by:
+      - design/gdd/leaderboards-and-anti-cheat.md
+    value: 14
+    unit: days  # server config; F1 offline play allowed before account creation; safe 0-60
+    added: 2026-11-16
+  - name: ranked_log_max_entries
+    status: active
+    source: design/gdd/leaderboards-and-anti-cheat.md
+    referenced_by:
+      - design/gdd/leaderboards-and-anti-cheat.md
+    value: 100000
+    unit: log entries  # proposed config.csv key (OQ-4); R3 overflow makes the guild unranked; safe 10,000-500,000
+    added: 2026-11-16
+  - name: lb_reason_code_block
+    status: active
+    source: design/gdd/leaderboards-and-anti-cheat.md
+    referenced_by:
+      - design/gdd/leaderboards-and-anti-cheat.md
+    value: 3500
+    unit: code block  # R12 reason codes 3501-3512 (service codes, not event types)
+    added: 2026-11-16
+
+  - name: ui_multiselect_free_max
+    status: active
+    source: design/gdd/guild-screens.md
+    referenced_by:
+      - design/gdd/guild-screens.md
+    value: 5
+    unit: members  # F3/R9; Free multi-select cap; select-all and apply-to-filter are Premium; proposed config.csv key; safe 1-80
+    added: 2026-11-16
+  - name: ui_ad_banner_reserve_px
+    status: active
+    source: design/gdd/guild-screens.md
+    referenced_by:
+      - design/gdd/guild-screens.md
+    value: 50
+    unit: logical_px  # R2; bottom reserve on Free, 0 on Premium/PC; provisional until Ads (33); safe 0-90
+    added: 2026-11-16
+  - name: ui_confirm_spend_ppm
+    status: active
+    source: design/gdd/guild-screens.md
+    referenced_by:
+      - design/gdd/guild-screens.md
+    value: 100000
+    unit: ppm_of_fund  # F4; spends at or above this share of the fund are confirmed; proposed config.csv key; safe 0-1000000
+    added: 2026-11-16
+
+# Example:
+#
+# constants:
+#   - name: gold_carry_limit
+#     status: active
+#     source: design/gdd/economy.md
+#     referenced_by:
+#       - design/gdd/economy.md
+#       - design/gdd/inventory.md   # inventory enforces the carry limit
+#       - design/gdd/ui.md          # HUD displays current gold vs limit
+#     value: 9999
+#     unit: gold
+#     added: 2026-03-26
+#     revised: ""
+#
+#   - name: base_inventory_slots
+#     status: active
+#     source: design/gdd/inventory.md
+#     referenced_by:
+#       - design/gdd/inventory.md
+#       - design/gdd/progression.md  # progression unlocks additional slots
+#     value: 20
+#     unit: slots
+#     added: 2026-03-26
+#     revised: ""

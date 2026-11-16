@@ -1,0 +1,16 @@
+id,order,level_min,level_max,primary_element,secondary_element,wave,boss_monster_id,guild_lv_req,rebirth_req,theme
+zone_01,1,1,10,moc,,1,m_z01_boss,1,0,field_farmland
+zone_02,2,10,20,kim,,1,m_z02_boss,1,0,bronze_mines
+zone_03,3,20,30,thuy,,1,m_z03_boss,2,0,marsh_wetland
+zone_04,4,30,40,hoa,,1,m_z04_boss,2,0,burning_dunes
+zone_05,5,40,50,tho,,1,m_z05_boss,3,0,red_highlands
+zone_06,6,50,60,moc,kim,1,m_z06_boss,3,0,mountain_pass
+zone_07,7,60,70,thuy,moc,1,m_z07_boss,4,0,river_estuary
+zone_08,8,70,80,hoa,tho,1,m_z08_boss,4,0,fire_cavern
+zone_09,9,80,90,kim,thuy,1,m_z09_boss,5,0,misty_peaks
+zone_10,10,90,100,mixed,,1,m_z10_boss,5,0,ruined_citadel
+zone_11,11,100,120,mixed,,1,m_z11_boss,6,1,dragon_cave
+zone_12,12,120,140,mixed,,2,m_z12_boss,7,2,primeval_forest
+zone_13,13,140,160,mixed,,2,m_z13_boss,7,3,deep_sea
+zone_14,14,160,180,mixed,,3,m_z14_boss,8,4,fallen_palace
+zone_15,15,180,200,mixed,,3,m_z15_boss,8,5,realm_of_legends

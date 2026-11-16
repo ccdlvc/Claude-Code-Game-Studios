@@ -1,0 +1,13 @@
+id,period,objective,count_base,count_per_guild_lv,reward_gold_base,reward_gold_per_guild_lv,reward_gem,reward_items,ad_variant,premium_auto_claim,min_guild_lv
+q_d_hunt,daily,kill_monsters,40,10,300,150,5,,false,false,1
+q_d_golden_boss,daily,join_golden_boss,1,0,500,250,10,,false,false,1
+q_d_sell,daily,sell_items_market,5,2,250,120,5,,false,false,1
+q_d_recruit,daily,accept_candidate,1,0,400,200,8,,false,false,1
+q_d_login,daily,login,1,0,200,100,3,,false,false,1
+q_d_watch_ad,daily,watch_rewarded_ad,1,0,600,300,10,,true,true,1
+q_w_craft,weekly,craft_items,15,5,1500,800,20,,false,false,1
+q_w_upgrade,weekly,upgrade_building,2,0,2500,1200,25,,false,false,1
+q_w_bounty,weekly,complete_bounties,10,2,2000,1000,20,,false,false,1
+q_w_backlog_boss,weekly,defeat_backlog_boss,1,0,3000,1500,30,item_banner:1,false,false,2
+q_w_watch_ad,weekly,watch_rewarded_ad,3,0,2000,1000,20,,true,true,1
+q_w_all_done,weekly,complete_all_weekly,1,0,0,0,0,item_pa_lens:1,false,false,1

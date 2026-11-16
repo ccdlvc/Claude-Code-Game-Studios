@@ -1,0 +1,16 @@
+id,monster_id,element,min_guild_lv,hp_per_participant,loot_table,mechanics,wave
+gb_01,m_z01_boss,moc,1,0.10,loot_gb_01,enrage_30pct;charge,1
+gb_02,m_z02_boss,kim,1,0.10,loot_gb_02,armor_phase;poison_sting,1
+gb_03,m_z03_boss,thuy,2,0.10,loot_gb_03,summon_adds;water_pulse,1
+gb_04,m_z04_boss,hoa,2,0.10,loot_gb_04,burn_zone;enrage_30pct,1
+gb_05,m_z05_boss,tho,3,0.10,loot_gb_05,stomp_stun;armor_phase,1
+gb_06,m_z06_boss,kim,3,0.10,loot_gb_06,leap_strike;bleed,1
+gb_07,m_z07_boss,thuy,4,0.10,loot_gb_07,tail_sweep;summon_adds,1
+gb_08,m_z08_boss,hoa,4,0.10,loot_gb_08,fire_dive;burn_zone,1
+gb_09,m_z09_boss,thuy,5,0.10,loot_gb_09,constrict;mist_blind,1
+gb_10,m_z10_boss,moc,5,0.10,loot_gb_10,root_aoe;summon_adds,1
+gb_11,m_z11_boss,thuy,6,0.10,loot_gb_11,flood_phase;enrage_30pct,1
+gb_12,m_z12_boss,kim,7,0.10,loot_gb_12,leap_strike;bleed;enrage_30pct,2
+gb_13,m_z13_boss,thuy,7,0.10,loot_gb_13,tentacle_sweep;ink_blind;summon_adds,2
+gb_14,m_z14_boss,tho,8,0.10,loot_gb_14,stomp_stun;armor_phase;summon_adds,3
+gb_15,m_z15_boss,hoa,8,0.10,loot_gb_15,dragon_breath;flood_phase;enrage_30pct,3

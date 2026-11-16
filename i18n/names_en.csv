@@ -1,0 +1,77 @@
+id,name,short,desc
+kim_1,Bronze Wall Sect,Bronze Wall,Armored sect that uses bronze as a rampart; soaks damage and taunts enemies.
+kim_2,Lac Sword Order,Lac Sword,Swift and ruthless swordsmen; burst damage on a single target.
+moc_1,Herbal Spirit Valley,Herbal Spirit,Healing and support sect; herbs and spirit energy buff the party.
+moc_2,Miasma Grove Camp,Miasma Grove,Poison and miasma users; wear down enemy health and defense.
+thuy_1,Tide Echo Pavilion,Tide Echo,Control sect whose zither sounds like the tide; slows and pushes back.
+thuy_2,Frost Moon Hermitage,Moon Hermitage,Mana support sect; buffs the party and restores mana.
+hoa_1,Blazing Fist Hall,Blazing Fist,Melee sect with flaming strikes; burst and burn damage.
+hoa_2,Repeating Crossbow Camp,Crossbow Camp,Archers with repeating crossbows; ranged damage over time.
+tho_1,Dike Guard Order,Dike Guard,Guardians modeled on the dike; reduce damage and shield allies.
+tho_2,Ancient Formation Order,Formation Order,Sect of formations and traps; control and summoning.
+zone_01,Lac Fields,Lac Fields,Farmland of the Van Lang era; beasts roam near the villages.
+zone_02,Dong Son Copper Mines,Dong Son,Copper mines echoing with bronze drums; snakes and mine pests nest here.
+zone_03,Da Trach Marsh,Da Trach,A legendary marsh; water spirits hide among the reeds.
+zone_04,Sa Huynh Dunes,Sa Huynh,Sun-scorched coastal dunes; scorpions and fire spirits.
+zone_05,Red Earth Plateau,Red Earth,Red-soil highlands; huge beasts and living rock.
+zone_06,Chi Lang Pass,Chi Lang,A dangerous mountain pass; tigers and biting beasts in the forest.
+zone_07,Bach Dang Estuary,Bach Dang,A river mouth full of stake fields; water monsters and crocodiles.
+zone_08,Volcano Cavern,Volcano,A lava cave; fire and stone monsters.
+zone_09,Hoang Lien Cloud Peak,Cloud Peak,Misty frosty summit; high-mountain beasts.
+zone_10,Co Loa Ruined Citadel,Co Loa,An abandoned ancient citadel; spirits and mystic creatures.
+zone_11,Dragon Cave of Ha Long,Dragon Cave,Legendary dragon cave guarded by a river monster.
+zone_12,Truong Son Primeval Forest,Primeval Forest,Dense primeval forest; fierce beasts and living trees.
+zone_13,Eastern Sea Abyss,Sea Abyss,A dark deep-sea trench; giant water monsters.
+zone_14,Fallen Palace of the Old Capital,Fallen Palace,The ruined palace of an old capital; statues come alive.
+zone_15,Realm of Legends,Legends,A mythical realm ruled by ancient creatures.
+m_z01_boss,Tiger Lord Thirty,Tiger Lord,King of the forest in the farm country.
+m_z02_boss,Golden Mine Serpent,Mine Serpent,A giant bronze-gold snake in the mines.
+m_z03_boss,Fish Spirit,Fish Spirit,A thousand-year-old fish spirit of the marsh.
+m_z04_boss,Scorpion King of Flames,Scorpion King,A giant scorpion on the dunes.
+m_z05_boss,Nine-Tusk Elephant King,Nine-Tusk,A colossal elephant with nine tusks.
+m_z06_boss,Nine-Tailed Fox Spirit,Fox Spirit,A nine-tailed fox in the deep forest.
+m_z07_boss,Bach Dang Flood Dragon,Flood Dragon,A flood dragon stirring waves at the river mouth.
+m_z08_boss,Flame Phoenix,Flame Phoenix,A fire bird in the lava cave.
+m_z09_boss,Cloud Mist Python,Mist Python,A python hidden in the fog.
+m_z10_boss,White Rooster Spirit,White Rooster,A white rooster turned spirit in the old citadel.
+m_z11_boss,Great River Monster,River Monster,Lord of the river monsters guarding the dragon cave.
+bld_hq,Guild Hall,Guild Hall,Guild headquarters; unlocks and upgrades buildings.
+bld_trade,Trade Guild,Trade Guild,Place material orders for members to hunt.
+bld_bounty,Bounty Board Hall,Bounty Hall,Where hunt quests are posted.
+bld_restaurant,Dining Hall,Dining Hall,Sells food that restores fullness.
+bld_tavern,Tavern,Tavern,Sells drinks; improves mood.
+bld_inn,Inn,Inn,Rest to restore stamina.
+bld_infirmary,Infirmary,Infirmary,Heals injured members.
+bld_training,Training Hall,Training Hall,Idle members train for extra experience.
+bld_smith,Blacksmith,Blacksmith,Crafts weapons and armor.
+bld_jeweler,Jeweler,Jeweler,Crafts accessories.
+bld_alchemy,Alchemy Room,Alchemy,Crafts potions.
+bld_market,Guild Market,Market,"Buy and sell weapons, armor, accessories, potions."
+bld_academy_skill,Scripture Pavilion,Scripture,Learn skills and change school.
+bld_academy_trait,Enlightenment Terrace,Enlightenment,Learn and reveal traits.
+bld_enhance,Refinement Terrace,Refinement,Enhance equipment.
+bld_housing,Lodging,Lodging,Increases member capacity.
+bld_bank,Bank,Bank,Earns interest for the guild fund.
+bld_buff_courage,Valor Stele,Valor Stele,Guild-wide combat buff.
+bld_buff_life,Spirit Spring,Spirit Spring,Health and recovery buff.
+bld_buff_wisdom,Library of Lore,Lore Library,Experience and insight buff.
+bld_shrine,Spirit Shrine,Shrine,Resurrection and rebirth.
+bld_tower,Endless Tower,Endless Tower,Infinite-floor challenge tower.
+bld_arena,Arena,Arena,Fight NPC guilds.
+bld_scout,Scout House,Scout,Assess PA and find candidates.
+bld_stable,Stable,Stable,Raise horses.
+bld_chronicle,Chronicle House,Chronicle,The guild's chronicle of the jianghu.
+item_gold,Quan,Quan,Basic currency.
+item_gem,Spirit Gem,Spirit Gem,Premium currency from quests and achievements.
+item_rebirth_pill,Rebirth Pill,Rebirth Pill,Item used to reincarnate.
+item_summon_horn,Summoning Horn,Horn,Call a boss on demand.
+item_recruit_token,Recruitment Token,Recruit Token,Invite rare candidates.
+item_pa_lens,Lens of Fate,Lens,Reveals exact PA of one member.
+item_pa_eye,Eye of Heaven,Eye,Reveals exact PA of all members.
+item_banner,Command Banner,Banner,Temporary buff for parties missing a support member.
+title_leader,Guild Leader,Leader,Head of the guild.
+title_elder,Elder,Elder,An ascended member who grants guild-wide buffs.
+m_z12_boss,Millennium White Tiger,White Tiger,A white tiger a thousand years old in the primeval forest.
+m_z13_boss,Giant Cephalopod of the Eastern Sea,Cephalopod,A giant squid in the deep sea trench.
+m_z14_boss,Stone Nghe of the Old Capital,Stone Nghe,A stone guardian beast awakened to guard the palace.
+m_z15_boss,Ancient Dragon Lord,Ancient Dragon,An ancient dragon of the realm of legends.
